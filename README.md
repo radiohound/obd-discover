@@ -105,7 +105,7 @@ car in front of it:
 | Documented block and header locations | 2,218 rows across **58 makes** | OBDb (CC BY-SA 4.0) |
 | DIDs known to answer | 13,723 across **44 makes** — 2,039 for BMW alone, 1,075 Volkswagen, 1,001 Audi | OBDb (CC BY-SA 4.0) |
 | Model-specific locations | 147 models across 33 makes | OBDb (CC BY-SA 4.0) |
-| WMI → manufacturer | 492 codes | NHTSA vPIC (public domain) |
+| WMI → manufacturer | 461 codes | NHTSA vPIC (public domain) |
 | Generic trouble codes | 9,415 — 7,387 P, 1,230 U, 498 C, 300 B | dtc-database (MIT) |
 
 Where a make has model-specific data and the optional online lookup is on, the app resolves

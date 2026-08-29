@@ -1,5 +1,8 @@
 package com.redundo.obddiscover
 
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -387,4 +390,49 @@ class ReplyShapeTest {
     }
 
     private fun String.toHex() = toByteArray().joinToString("") { "%02X".format(it) }
+}
+
+/**
+ * The WMI table used to be built by substring-matching vPIC manufacturer names against
+ * OBDb make names, which silently produced makes out of unrelated companies: PYRAMID
+ * (a trailer builder) became "Ram", LANDMARK became "Land", HUDSON BROTHERS became "DS",
+ * and HYUNDAI STEEL INDUSTRIES became "Hyundai". 31 of 492 entries were vehicles that
+ * cannot be scanned at all. These pin the shape so a regenerated table cannot regress.
+ */
+class WmiTableTest {
+    private fun table() = org.json.JSONObject(
+        java.io.File("src/main/assets/wmi_to_make.json").readText())
+
+    @Test fun substringArtifactsAreGone() {
+        val t = table()
+        for (w in listOf("16R", "15V", "10H", "145", "1KB", "1RL", "40B", "3T1", "421")) {
+            assertFalse("$w is a trailer/motorcycle builder, not a car make", t.has(w))
+        }
+    }
+
+    @Test fun brandsResolveToThemselvesNotTheParent() {
+        val t = table()
+        // vPIC names the brand; the parent stays as a fallback because hints only reorder.
+        for ((w, brand) in listOf("19U" to "Acura", "1LN" to "Lincoln", "2T2" to "Lexus")) {
+            val a = t.optJSONArray(w)
+            assertNotNull("$w should carry a candidate list", a)
+            assertEquals("$w must lead with $brand", brand, a!!.optString(0))
+        }
+    }
+
+    @Test fun jointVenturePlantsListEveryMake() {
+        val t = table()
+        val n = t.optJSONArray("1N4")   // Nissan and Infiniti share the plant
+        assertNotNull(n); assertEquals("Nissan", n!!.optString(0))
+        assertTrue("1N4 must also offer INFINITI",
+            (0 until n.length()).map { n.optString(it) }.contains("INFINITI"))
+    }
+
+    @Test fun ordinaryEntriesStayPlainStrings() {
+        val t = table()
+        // Only the 53 that genuinely need a list pay for one.
+        val lists = t.keys().asSequence().count { t.opt(it) is org.json.JSONArray }
+        assertEquals(53, lists)
+        assertEquals("Ford", t.optString("1FT"))
+    }
 }

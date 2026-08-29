@@ -148,11 +148,35 @@ object VehicleId {
         return full.filter { it.second == best }.map { it.first }.sorted()
     }
 
-    /** Manufacturer from the WMI (VIN chars 1-3), or "" if unknown. */
-    fun make(vin: String): String {
-        if (vin.length < 3) return ""
-        return wmiMap?.optString(vin.take(3).uppercase(), "") ?: ""
+    /**
+     * Makes this VIN's WMI builds for, most likely first. Empty when the WMI is unknown.
+     *
+     * A WMI is a plant, not a brand, so one can legitimately carry several makes: 1N4 is
+     * Nissan AND Infiniti, 3C4 is the whole Chrysler/Dodge/Jeep/Ram/Fiat family, and 19U
+     * is Acura built by Honda. The table stores a bare string for the ordinary case and an
+     * array for those, so only the 53 that need it pay for it.
+     */
+    fun makes(vin: String): List<String> {
+        if (vin.length < 3) return emptyList()
+        val v = wmiMap?.opt(vin.take(3).uppercase()) ?: return emptyList()
+        if (v is JSONArray) return (0 until v.length()).map { v.optString(it) }.filter { it.isNotEmpty() }
+        val s = v.toString()
+        return if (s.isEmpty()) emptyList() else listOf(s)
     }
+
+    /** Manufacturer from the WMI (VIN chars 1-3), or "" if unknown. */
+    fun make(vin: String): String = makes(vin).firstOrNull() ?: ""
+
+    /**
+     * The other makes this VIN's plant builds for -- everything after the primary.
+     *
+     * Passed to the hint lookups as `also`, never merged into the make itself. Merging at
+     * make level looked tempting and is wrong: one rebadge (the Chevrolet City Express is
+     * a Nissan NV200) would drag Infiniti's locations into every Chevrolet scan, taking
+     * Nissan's own hint set from 12 rows to 90. Scoped to the WMI, a 1N4 gets Nissan then
+     * Infiniti and nothing else does.
+     */
+    fun siblings(vin: String): List<String> = makes(vin).drop(1)
 
     /**
      * Model year from VIN position 10.
@@ -198,13 +222,18 @@ object VehicleId {
      * Hinted locations go first because they pay off in the first minute. The blind sweep
      * still follows, and it is what finds the rest.
      */
-    fun hintsFor(make: String): List<Hint> {
-        val arr = hints?.optJSONArray(make) ?: return emptyList()
-        val out = ArrayList<Hint>(arr.length())
-        for (i in 0 until arr.length()) {
-            val r = arr.optJSONArray(i) ?: continue
-            if (r.length() >= 4) {
-                out.add(Hint(r.optString(0), r.optString(1), r.optString(2), r.optInt(3) == 1))
+    fun hintsFor(make: String, also: List<String> = emptyList()): List<Hint> {
+        val out = ArrayList<Hint>()
+        // Primary make first so its locations keep their head start; siblings only extend
+        // the tail. Deduped because plants that share a brand share documented rows.
+        for (m in listOf(make) + also) {
+            val arr = hints?.optJSONArray(m) ?: continue
+            for (i in 0 until arr.length()) {
+                val r = arr.optJSONArray(i) ?: continue
+                if (r.length() >= 4) {
+                    val h = Hint(r.optString(0), r.optString(1), r.optString(2), r.optInt(3) == 1)
+                    if (h !in out) out.add(h)
+                }
             }
         }
         return out
@@ -218,8 +247,8 @@ object VehicleId {
      * rule it replaces: that rule excluded Toyota's engine module at 700 while admitting
      * addresses it knew nothing about.
      */
-    fun blockPrefixes(make: String, powertrainOnly: Boolean = true): List<Int> =
-        hintsFor(make)
+    fun blockPrefixes(make: String, powertrainOnly: Boolean = true, also: List<String> = emptyList()): List<Int> =
+        hintsFor(make, also)
             .filter { it.service == "22" && it.block.length == 2 && (!powertrainOnly || it.powertrain) }
             .mapNotNull { it.block.toIntOrNull(16) }
             .distinct().map { 0x2200 or it }.sorted()
@@ -239,8 +268,8 @@ object VehicleId {
      * They are still surfaced by unaddressable(), so the screen can say what is known but
      * out of reach rather than pretending it does not exist.
      */
-    fun headers(make: String, powertrainOnly: Boolean = true): List<String> =
-        hintsFor(make)
+    fun headers(make: String, powertrainOnly: Boolean = true, also: List<String> = emptyList()): List<String> =
+        hintsFor(make, also)
             .filter {
                 it.service == "22" && (!powertrainOnly || it.powertrain) &&
                     it.header.length == 3 && it.header != "6F1" &&
@@ -259,8 +288,8 @@ object VehicleId {
      *
      * OBDb writes the target as "DA11"; the bus address is DA11F1, tester F1 appended.
      */
-    fun headers29(make: String, powertrainOnly: Boolean = true): List<String> =
-        hintsFor(make)
+    fun headers29(make: String, powertrainOnly: Boolean = true, also: List<String> = emptyList()): List<String> =
+        hintsFor(make, also)
             .filter {
                 it.service == "22" && (!powertrainOnly || it.powertrain) &&
                     it.header.length == 4 && it.header.uppercase().startsWith("DA") &&
@@ -269,8 +298,8 @@ object VehicleId {
             .map { it.header.uppercase() + "F1" }.distinct().sorted()
 
     /** Documented Mode-22 headers this app cannot address, with the reason. */
-    fun unaddressable(make: String): List<Pair<String, String>> =
-        hintsFor(make).filter { it.service == "22" && it.header.isNotEmpty() }
+    fun unaddressable(make: String, also: List<String> = emptyList()): List<Pair<String, String>> =
+        hintsFor(make, also).filter { it.service == "22" && it.header.isNotEmpty() }
             .map { it.header }.distinct().sorted()
             .mapNotNull { h ->
                 when {
@@ -301,8 +330,8 @@ object VehicleId {
      * alive. It is a targeted cost -- 26 pairs on that Ranger, about nine minutes -- and it
      * applies only where the community has already recorded that data exists.
      */
-    fun hintedPairs(make: String, powertrainOnly: Boolean = false): List<Pair<String, Int>> =
-        hintsFor(make)
+    fun hintedPairs(make: String, powertrainOnly: Boolean = false, also: List<String> = emptyList()): List<Pair<String, Int>> =
+        hintsFor(make, also)
             .filter {
                 it.service == "22" && it.block.length == 2 &&
                     it.header.length == 3 && it.header != "6F1" &&
@@ -356,5 +385,6 @@ object VehicleId {
      * Said "which we cannot send" until the Mode-21 sweep landed. It is sent on KWP2000,
      * and on ISO 9141-2 behind the opt-in.
      */
-    fun usesMode21(make: String): Boolean = hintsFor(make).any { it.service == "21" }
+    fun usesMode21(make: String, also: List<String> = emptyList()): Boolean =
+        hintsFor(make, also).any { it.service == "21" }
 }

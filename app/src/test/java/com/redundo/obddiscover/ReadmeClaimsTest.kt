@@ -132,7 +132,7 @@ class ReadmeClaimsTest {
     }
 
     @Test fun wmiTableCount() {
-        assertEquals(492, JSONObject(asset("wmi_to_make.json")).length()); claims("492")
+        assertEquals(461, JSONObject(asset("wmi_to_make.json")).length()); claims("461")
     }
 
     @Test fun troubleCodeCounts() {
