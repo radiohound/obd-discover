@@ -1,7 +1,17 @@
 {
+  "vin_pattern": "7YAKM4DB",
   "year": 2025,
   "make": "Hyundai",
   "model": "Ioniq 5",
+  "series": "SE",
+  "vehicle": {
+    "body": "Sport Utility Vehicle [SUV]/Multipurpose Vehicle [MPV]",
+    "drive": "4x2",
+    "fuel": "Electric",
+    "electrification": "BEV (Battery Electric Vehicle)",
+    "doors": "4",
+    "gvwr": "Class 1D: 5,001 - 6,000 lb (2,268 - 2,722 kg)"
+  },
   "addressing": "11-bit",
   "headers": [
     "7DF",
@@ -22,6 +32,6 @@
     "probes": 5390,
     "blocks": 7
   },
-  "source": "obd-discover, on-car capture 2026-08-29",
-  "notes": "VIN PATTERN MISSING. This car has no engine ECU -- its live headers are 7DF and 7E2 -- so every VIN attempt before discovery went to an address that does not exist, and the late recovery kept only the WMI (7YA) before the fix that keeps the whole VIN. Make is from that WMI; model and year are the owner's identification. Re-scan, or add the first 8 VIN characters, to complete it."
+  "source": "obd-discover, on-car capture 2026-08-29; VIN pattern read from the vehicle",
+  "notes": "Battery electric, and that is why its VIN was hard to read: a BEV has no engine ECU, so 7E0 does not exist on this car and every VIN attempt before discovery went to an address that is not there. Its live headers are 7DF and 7E2. The pattern here was read off the vehicle; vPIC confirms make, model, year and SE trim independently of the WMI mapping."
 }
