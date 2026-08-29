@@ -631,3 +631,61 @@ class RecordRichnessTest {
         }
     }
 }
+
+/**
+ * Standard PID names, from SAE J1979 / ISO 15031-5.
+ *
+ * The cross-check that matters is against ANCHORS: those nine were named by hand from the
+ * same standard, so if the bundled table disagrees with them, one of the two is wrong.
+ */
+class StandardPidTest {
+    private fun table() = org.json.JSONObject(
+        java.io.File("src/main/assets/pid_standard.json").readText())
+
+    @Test fun everyAnchorIsInTheStandardTable() {
+        // The nine anchors were named by hand from the same standard, so spelling out what
+        // each one IS turns two independent lists into a check on both.
+        val expected = mapOf(
+            "rpm" to "engine speed", "speed" to "vehicle speed",
+            "load" to "calculated engine load", "coolant" to "engine coolant temperature",
+            "maf" to "mass air flow rate", "baro" to "absolute barometric pressure",
+            "ambient" to "ambient air temperature", "fuel" to "fuel tank level input",
+            "distance" to "distance since codes cleared")
+        val m01 = table().getJSONObject("mode01")
+        for ((label, pid) in Obd.ANCHORS.entries.map { it.key to it.value }) {
+            val e = m01.optJSONObject(pid.substring(2))
+            assertNotNull("$label ($pid) is missing from the standard table", e)
+            assertEquals("$label ($pid)", expected[label], e!!.getString("n"))
+        }
+        assertEquals("every anchor must be accounted for", expected.size, Obd.ANCHORS.size)
+    }
+
+    @Test fun keysAreCleanHex() {
+        for (mode in listOf("mode01", "mode09")) {
+            val t = table().getJSONObject(mode)
+            for (k in t.keys()) {
+                assertEquals("$mode key $k should be two hex digits", 2, k.length)
+                assertTrue("$mode key $k is not hex",
+                    k.all { it in "0123456789ABCDEF" })
+            }
+        }
+    }
+
+    @Test fun theWellKnownOnesAreRight() {
+        val m01 = table().getJSONObject("mode01")
+        assertEquals("engine speed", m01.getJSONObject("0C").getString("n"))
+        assertEquals("rpm", m01.getJSONObject("0C").getString("u"))
+        assertEquals("km/h", m01.getJSONObject("0D").getString("u"))
+        assertEquals("degC", m01.getJSONObject("05").getString("u"))
+        assertEquals("odometer", m01.getJSONObject("A6").getString("n"))
+        assertEquals("ECU name", table().getJSONObject("mode09").getJSONObject("0A").getString("n"))
+    }
+
+    @Test fun mode22IsAbsentAndSaysWhy() {
+        assertFalse("Mode 22 is manufacturer-specific and cannot be tabulated",
+            table().has("mode22"))
+        assertTrue("attribution must explain the Mode-22 omission",
+            java.io.File("src/main/assets/ATTRIBUTION.txt").readText()
+                .contains("manufacturer-specific"))
+    }
+}

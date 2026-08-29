@@ -114,6 +114,7 @@ car in front of it:
 | Model-specific locations | 147 models across 33 makes | OBDb (CC BY-SA 4.0) |
 | WMI → manufacturer | 461 codes | NHTSA vPIC (public domain) |
 | Generic trouble codes | 9,415 — 7,387 P, 1,230 U, 498 C, 300 B | dtc-database (MIT) |
+| Standard PID names | 116 Mode-01 PIDs, 12 Mode-09 info types | SAE J1979 / ISO 15031-5 |
 | **Locations measured on real cars** | one record per contributed vehicle | [`vehicles/`](vehicles/) — this project |
 
 Where a make has model-specific data and the optional online lookup is on, the app resolves
@@ -132,6 +133,13 @@ identifiers it really answered. **These lead the hint order**, ahead of the comm
 because they were observed rather than documented. The community tables are not replaced —
 they still supply everything they know that was not seen on a car, and they cover 58 makes
 where this database currently covers a handful.
+
+Mode-01 and Mode-09 identifiers are named from the standard that defines them, so a
+Highlander's twenty PIDs read as *engine coolant temperature* and *mass air flow rate*
+rather than as `0105` and `0110`. Mode 22 gets no such table and cannot: those identifiers
+are manufacturer-specific, which is the whole reason this app exists. Names for those come
+from OBDb where it has them, and from [`vehicles/`](vehicles/) where somebody has verified
+one against something real.
 
 **Hints reorder a sweep; they never restrict one.** This matters more than the table sizes. On a
 BMW F10 with six real Mode-22 blocks, three were absent from the community list — so a scan that

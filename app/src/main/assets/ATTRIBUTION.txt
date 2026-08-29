@@ -47,3 +47,11 @@ wmi_to_make.json
 
 
 Application source: MIT. See LICENSE.
+
+pid_standard.json
+  Mode-01 PID and Mode-09 info-type names, from SAE J1979 / ISO 15031-5.
+  These are the identifiers and meanings the emissions standard defines, so the
+  mapping is a statement of that standard rather than anyone's authored work.
+  No licence attaches; the standard is cited because a reader should be able to
+  check it. Mode-22 identifiers are NOT here and cannot be: they are
+  manufacturer-specific by definition, which is what this app exists to map.

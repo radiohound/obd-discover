@@ -34,6 +34,7 @@ object VehicleId {
      */
     private var models: JSONObject? = null
     private var contributed: JSONObject? = null
+    private var stdPids: JSONObject? = null
 
     fun load(ctx: Context) {
         if (wmiMap != null) return
@@ -48,6 +49,10 @@ object VehicleId {
         runCatching {
             contributed = JSONObject(
                 ctx.assets.open("vin_patterns.json").bufferedReader().readText())
+        }
+        runCatching {
+            stdPids = JSONObject(
+                ctx.assets.open("pid_standard.json").bufferedReader().readText())
         }
     }
 
@@ -232,6 +237,31 @@ object VehicleId {
             if (make.isNotEmpty()) return make to model
         }
         return null
+    }
+
+    /**
+     * The standard name for a Mode-01 PID or Mode-09 info type, or "" if it is not one.
+     *
+     * FREE, AND IT SHOULD HAVE BEEN HERE FROM THE START. Mode 22 is manufacturer-specific,
+     * which is the whole reason this app exists -- nobody publishes those. Mode 01 and
+     * Mode 09 are the opposite: SAE J1979 and ISO 15031-5 define them, so "0105 is engine
+     * coolant temperature" is a fact of a public standard rather than anyone's work, and
+     * costs 4.9 KB to carry. Until this the app named nine of them, from the anchor list,
+     * and a Highlander record stored twenty as bare hex.
+     *
+     * Returns name and unit; unit is "" where the standard defines none (a status word or
+     * a support bitmap).
+     */
+    fun standardName(request: String): Pair<String, String> {
+        val r = request.uppercase().replace(" ", "")
+        if (r.length < 4) return "" to ""
+        val table = when (r.take(2)) {
+            "01" -> stdPids?.optJSONObject("mode01")
+            "09" -> stdPids?.optJSONObject("mode09")
+            else -> null
+        } ?: return "" to ""
+        val e = table.optJSONObject(r.substring(2, 4)) ?: return "" to ""
+        return e.optString("n") to e.optString("u")
     }
 
     /** A DID somebody identified on a real car: what it is, and how sure they were. */
