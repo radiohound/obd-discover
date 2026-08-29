@@ -114,7 +114,7 @@ car in front of it:
 | Model-specific locations | 147 models across 33 makes | OBDb (CC BY-SA 4.0) |
 | WMI → manufacturer | 461 codes | NHTSA vPIC (public domain) |
 | Generic trouble codes | 9,415 — 7,387 P, 1,230 U, 498 C, 300 B | dtc-database (MIT) |
-| Standard PID names | 116 Mode-01 PIDs, 12 Mode-09 info types | SAE J1979 / ISO 15031-5 |
+| Standard PID names | 117 Mode-01 PIDs, 12 Mode-09 info types | SAE J1979 / ISO 15031-5 |
 | **Locations measured on real cars** | one record per contributed vehicle | [`vehicles/`](vehicles/) — this project |
 
 Where a make has model-specific data and the optional online lookup is on, the app resolves

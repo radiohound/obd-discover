@@ -652,6 +652,26 @@ class CaptureRunner(
                 // true before there is anything to measure.
                 detail = "stay parked, engine warm — this usually takes 15–20 minutes"
                 phase = CapPhase.DISCOVER
+
+                // THE LEGISLATED SET, ON CAN TOO. Mode01.supportedPids is protocol-
+                // agnostic by design -- it takes the ask and lets the caller handle
+                // headers -- but only the non-CAN branch was calling it, so a CAN capture
+                // recorded no Mode-01 data at all. Four of the five vehicles in vehicles/
+                // therefore had nothing a standard PID table could name, while the drive
+                // logger read nine of these PIDs off each of them every run.
+                //
+                // Seven requests on the functional broadcast, before the sweep, so a
+                // stopped run still has them.
+                status = "scanning supported standard PIDs..."
+                ble.cmd("ATSH$vinBroadcast")
+                stdPids = Mode01.supportedPids { req ->
+                    if (capStop) return@supportedPids null
+                    val (raw, ok) = ble.cmd(req, 4_000)
+                    if (!ok) null else Obd.payloadOf(req, raw)?.let { Obd.hex(it) }
+                }
+                ble.log("Mode-01 bitmap scan: ${stdPids.size} PIDs supported")
+                discover.stdPidsIn = stdPids
+
                 discover.hintedBlocks = if (mk.isEmpty()) emptyList() else VehicleId.blockPrefixes(mk, also = sib)
                 discover.hintedHeaders = if (mk.isEmpty()) emptyList() else VehicleId.headers(mk, also = sib)
                 discover.hinted29 = if (mk.isEmpty()) emptyList() else VehicleId.headers29(mk, also = sib)

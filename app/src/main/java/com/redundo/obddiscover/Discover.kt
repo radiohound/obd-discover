@@ -618,6 +618,8 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
     var hintedExt: Boolean = false
 
     /** VIN identity CaptureRunner already established, so it is not read a second time. */
+    /** Supported Mode-01 PIDs, scanned by Capture before discovery. */
+    var stdPidsIn: List<String> = emptyList()
     var wmiIn: String = ""
     var vinKeyIn: String = ""
 
@@ -923,6 +925,12 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     out.write("\"headers_targeted\": [${liveHeaders.joinToString(", ") { "\"$it\"" }}],\n")
                     out.write("\"addressing\": \"${if (is29bit) "29-bit" else "11-bit"}\",\n")
                     out.write("\"speaks_mode22\": [${speaksMode22.joinToString(", ") { "\"$it\"" }}],\n")
+                    // The legislated set, recorded rather than assumed. Every OBD-II car
+                    // answers the Mode-01 bitmaps, but only the non-CAN path was storing
+                    // the result -- so a CAN capture threw away the twenty-odd identifiers
+                    // whose meanings the standard already defines, and the drive logger
+                    // read nine of them anyway without anything recording that they exist.
+                    out.write("\"mode01\": [${stdPidsIn.joinToString(", ") { "\"$it\"" }}],\n")
                     out.write("\"aborted\": ${if (stopFlag) "true" else "false"},\n")
                     // Schema below matches obd_scan's discover.json so that
                     // `sweep --blocks-from` can read this file unmodified.

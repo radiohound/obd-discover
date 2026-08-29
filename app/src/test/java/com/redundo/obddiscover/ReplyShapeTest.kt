@@ -689,3 +689,43 @@ class StandardPidTest {
                 .contains("manufacturer-specific"))
     }
 }
+
+/**
+ * Mode-01 support is recorded on CAN, not only on K-line.
+ *
+ * Mode01.supportedPids was always protocol-agnostic -- it takes the ask and leaves headers
+ * to the caller -- but only the non-CAN branch called it. The result was that four of the
+ * five vehicles in vehicles/ carried no Mode-01 data, so a 116-name standard table could
+ * name 20 identifiers on one car and nothing anywhere else, while the drive logger read
+ * nine of those PIDs off every CAN vehicle on every run.
+ */
+class Mode01OnCanTest {
+    private fun src(n: String) =
+        java.io.File("src/main/java/com/redundo/obddiscover/$n").readText()
+
+    @Test fun theCanBranchScansTheBitmaps() {
+        val cap = src("Capture.kt")
+        // Two call sites now: the non-CAN branch and the CAN one.
+        assertEquals("Mode01.supportedPids must be called on both paths", 2,
+            Regex("Mode01\\.supportedPids \\{").findAll(cap).count())
+        assertTrue("the CAN scan must feed Discover", cap.contains("discover.stdPidsIn = stdPids"))
+    }
+
+    @Test fun theCanMapWritesIt() {
+        assertTrue("the CAN map must carry mode01",
+            src("Discover.kt").contains("\\\"mode01\\\": ["))
+    }
+
+    /**
+     * Two name tables now describe the same PIDs: Mode01.NAMES for the screen, and
+     * pid_standard.json from SAE J1979. They must not drift apart into two answers.
+     */
+    @Test fun theTwoNameTablesAgree() {
+        val std = org.json.JSONObject(
+            java.io.File("src/main/assets/pid_standard.json").readText())
+            .getJSONObject("mode01")
+        val missing = Mode01.NAMES.keys.filter { !std.has(it.substring(2)) }
+        assertTrue("PIDs named on screen but absent from the standard table: $missing",
+            missing.isEmpty())
+    }
+}
