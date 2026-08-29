@@ -258,6 +258,16 @@ class ReadmeClaimsTest {
                 !src.contains("FusedLocation"))
     }
 
+
+    /** The reporting section points at things that exist. */
+    @Test fun reportingSectionPointsAtRealThings() {
+        claims("## Reporting something")
+        claims("adapter-log.txt")
+        // the build tag really is on the main screen and in the export
+        assertTrue(source("MainActivity.kt").contains("BuildTag.ID"))
+        assertTrue(source("Export.kt").contains("BuildTag.ID"))
+    }
+
     /** The documented build command has to exist. It did not, for the repo's whole life. */
     @Test fun theDocumentedBuildCommandExists() {
         claims("./gradlew assembleDebug")

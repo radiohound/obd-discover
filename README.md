@@ -248,6 +248,20 @@ scanning, not something this app wants; denying it stops the adapter being found
 and steering to a prompt while it logs. Fields with no relationship to speed or
 temperature can only be identified that way, and it works parked.
 
+## Reporting something
+
+Early on this will change often, so a report is much more useful with two things in it:
+
+- **The build tag**, shown under the app's title on the main screen (e.g.
+  `build 2026-08-28y · non-CAN progress bar`) and written into the top of every export.
+- **A scrubbed export**, which carries `adapter-log.txt` — the only file that records what
+  was *asked*, not merely what answered. Several defects here were only diagnosable from
+  it, and one of them had to be transcribed from a photograph of the screen because the
+  log was not yet being exported.
+
+The vehicle helps too: make, model year, and whether it is CAN or one of the pre-2008
+protocols. The app prints that on the identity card.
+
 ## Building
 
 Android Studio, or:
