@@ -52,6 +52,15 @@ class CaptureRunner(
 
     /** Model from the optional online lookup, or "" when it is off or found nothing. */
     var modelName by mutableStateOf(""); private set
+    /**
+     * The bare vPIC model, e.g. "Highlander". Separate from `modelName`, which is the
+     * display label and carries the year and series with it ("2006 MCU23L/MCU28L/ACU20L/
+     * ACU25L Highlander"). A contributed record must key on the bare name: the label would
+     * split one model into a silo per model year, and no second Highlander would ever
+     * match the first.
+     */
+    var modelClean by mutableStateOf(""); private set
+    var modelSeries by mutableStateOf(""); private set
 
     /** OBDb repo the vPIC model resolved to, or "" — the route to signal naming. */
     private var vpicRepo = ""
@@ -315,11 +324,12 @@ class CaptureRunner(
 
             // Optional, off by default, and never blocking the scan. Ten characters go out;
             // the six that identify this specific vehicle do not. See VinLookup.
-            modelName = ""; vpicRepo = ""
+            modelName = ""; modelClean = ""; modelSeries = ""; vpicRepo = ""
             if (Session.onlineVinLookup && vin.isNotEmpty()) {
                 status = "looking up the model (first 10 VIN characters)..."
                 VinLookup.lookup(ctx, vin)?.let {
                     modelName = it.label
+                    modelClean = it.model; modelSeries = it.series
                     vpicRepo = it.repo(ctx, info?.make ?: "")
                     ble.log("vPIC: ${VinLookup.abbreviate(vin)} -> ${it.label}")
                 }

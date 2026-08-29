@@ -539,3 +539,34 @@ class ContributeSchemaTest {
         }
     }
 }
+
+/**
+ * A record's `model` must be the BARE model name.
+ *
+ * The first on-car CONTRIBUTE runs wrote vPIC's display label into it — "2015 Forester"
+ * and "2006 MCU23L/MCU28L/ACU20L/ACU25L Highlander". Both decoded the car correctly; the
+ * damage was to the key. A year-prefixed model splits one vehicle into a silo per model
+ * year, so no second Forester would ever match the first, and the shared-locations premise
+ * the whole database rests on quietly stops holding.
+ */
+class ModelNameTest {
+    @Test fun noRecordCarriesAYearOrSeriesInsideItsModel() {
+        for (f in java.io.File("../vehicles").walkTopDown().filter { it.extension == "json" }) {
+            val r = org.json.JSONObject(f.readText())
+            val m = r.optString("model")
+            if (m.isEmpty()) continue
+            assertFalse("${f.name}: model $m starts with a year", m.matches(Regex("^(19|20)\\d\\d .*")))
+            assertFalse("${f.name}: model $m carries a series list", m.contains("/"))
+            r.optInt("year", 0).takeIf { it > 0 }?.let {
+                assertFalse("${f.name}: model $m repeats the year field", m.contains(it.toString()))
+            }
+        }
+    }
+
+    @Test fun theBareModelIsWhatReachesTheRecord() {
+        // Capture keeps both; only the bare one may be handed to contribute().
+        val ui = java.io.File("src/main/java/com/redundo/obddiscover/MainActivity.kt").readText()
+        assertTrue("contribute() must be passed modelClean, never modelName",
+            ui.contains("cap.modelClean, cap.vinKey"))
+    }
+}

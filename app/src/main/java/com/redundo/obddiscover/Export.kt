@@ -394,7 +394,8 @@ object Export {
      * record carries is WHICH identifiers answered -- headers and 256-DID blocks -- which
      * is the discovery, and is the part no public source has.
      */
-    fun contribute(ctx: Context, info: VehicleId.Info?, model: String, vinKey: String): Bundle? {
+    fun contribute(ctx: Context, info: VehicleId.Info?, model: String, vinKey: String,
+                   series: String = ""): Bundle? {
         val dir = File(ctx.getExternalFilesDir(null), "logs")
         val src = mapFor(dir, vinKey) ?: return null
         val m = JSONObject(src.readText())
@@ -425,7 +426,10 @@ object Export {
         info?.vin?.takeIf { it.length >= 3 }?.let { out.put("vin_pattern", it.take(8).uppercase()) }
         info?.year?.let { out.put("year", it) }
         out.put("make", make)
+        // The BARE model. Not the display label: "2006 MCU23L/MCU28L/ACU20L/ACU25L
+        // Highlander" would key its own silo and never match another Highlander.
         out.put("model", model)
+        if (series.isNotEmpty()) out.put("series", series)
         out.put("addressing", m.optString("addressing"))
         out.put("protocol", m.optString("protocol"))
         if (hdr.isNotEmpty()) out.put("headers", JSONArray(hdr.toList()))

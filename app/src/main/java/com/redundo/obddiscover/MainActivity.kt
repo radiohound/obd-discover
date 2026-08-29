@@ -254,11 +254,11 @@ class MainActivity : ComponentActivity() {
                         onClick = {
                             val b = runCatching {
                                 Export.contribute(this@MainActivity, cap.info,
-                                    cap.modelName, cap.vinKey)
+                                    cap.modelClean, cap.vinKey, cap.modelSeries)
                             }.getOrNull()
                             exportNote = when {
                                 b == null -> "nothing discovered yet to contribute"
-                                cap.modelName.isEmpty() ->
+                                cap.modelClean.isEmpty() ->
                                     "${b.file.name} — no model resolved; name it before opening a PR"
                                 else ->
                                     "${b.file.name} — VIN pattern only (8 chars), no serial, no payloads"

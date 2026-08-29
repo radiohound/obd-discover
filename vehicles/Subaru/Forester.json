@@ -1,7 +1,10 @@
 {
+  "vin_pattern": "JF2SJARC",
+  "year": 2015,
   "make": "Subaru",
   "model": "Forester",
   "addressing": "11-bit",
+  "protocol": "",
   "headers": [
     "7A2",
     "7DF",
@@ -19,6 +22,5 @@
     "2230",
     "22F1"
   ],
-  "source": "obd-discover, 4 on-car capture(s) 2026-08",
-  "notes": "MODEL UNVERIFIED \u2014 this capture carries no VIN, so the model name is an inference and not ground truth. Re-scan with CONTRIBUTE to confirm. 7A2 answered on one run; it is documented by OBDb but outside the app's default sweep."
+  "source": "obd-discover, CONTRIBUTE on-car 2026-08-28 (+ earlier captures)"
 }

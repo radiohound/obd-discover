@@ -1,8 +1,11 @@
 {
+  "vin_pattern": "JTEEP21A",
+  "year": 2006,
   "make": "Toyota",
   "model": "Highlander",
-  "protocol": "A3",
+  "series": "MCU23L/MCU28L/ACU20L/ACU25L",
   "addressing": "none \u2014 A3 is not CAN",
+  "protocol": "A3",
   "pids": [
     "0101",
     "0103",
@@ -92,6 +95,6 @@
   ],
   "mode22": "SILENT",
   "mode22_evidence": "no reply to any of 23 probes",
-  "source": "obd-discover, 6 on-car capture(s) 2026-08",
-  "notes": "MODEL UNVERIFIED \u2014 this capture carries no VIN, so the model name is an inference and not ground truth. Re-scan with CONTRIBUTE to confirm. K-line (ISO 9141-2). Mode 22 answered nothing; this ECU sent no negative response codes at all across the run. Recorded as evidence, not as licence to skip Mode 22 on another Highlander."
+  "source": "obd-discover, CONTRIBUTE on-car 2026-08-28 (+ earlier captures)",
+  "notes": "K-line (ISO 9141-2). Mode 22 answered nothing; this ECU sent no negative response codes at all across the run. Recorded as evidence, not as licence to skip Mode 22 on another Highlander."
 }
