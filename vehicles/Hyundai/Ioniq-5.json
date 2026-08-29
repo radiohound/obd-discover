@@ -1,0 +1,27 @@
+{
+  "year": 2025,
+  "make": "Hyundai",
+  "model": "Ioniq 5",
+  "addressing": "11-bit",
+  "headers": [
+    "7DF",
+    "7E2"
+  ],
+  "blocks": [
+    "22A5",
+    "22AA",
+    "22F0",
+    "22F2",
+    "22F4",
+    "22F8",
+    "22F9"
+  ],
+  "identifier_count": 53,
+  "map": "Ioniq-5.map.json",
+  "stats": {
+    "probes": 5390,
+    "blocks": 7
+  },
+  "source": "obd-discover, on-car capture 2026-08-29",
+  "notes": "VIN PATTERN MISSING. This car has no engine ECU -- its live headers are 7DF and 7E2 -- so every VIN attempt before discovery went to an address that does not exist, and the late recovery kept only the WMI (7YA) before the fix that keeps the whole VIN. Make is from that WMI; model and year are the owner's identification. Re-scan, or add the first 8 VIN characters, to complete it."
+}

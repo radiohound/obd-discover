@@ -24,6 +24,7 @@
   ],
   "blocks": [
     "2200",
+    "2211",
     "2212",
     "2213",
     "2214",
@@ -39,7 +40,10 @@
     "2230",
     "2232",
     "2233",
+    "2234",
     "2235",
+    "2236",
+    "2237",
     "223A",
     "2241",
     "2242",
@@ -64,12 +68,16 @@
     "22FD",
     "22FE"
   ],
-  "identifier_count": 1929,
+  "identifier_count": 1936,
   "map": "Silverado-HD.map.json",
+  "pids": {
+    "0101": "monitor status since DTCs cleared",
+    "0142": "control module voltage (V)"
+  },
   "stats": {
     "probes": 17441,
     "identifiers_found": 1929
   },
-  "source": "obd-discover, 2 on-car captures 2026-08; VIN pattern read from the vehicle",
-  "notes": "The VIN was NOT read during the scan \u2014 the 29-bit VIN path was sending 7DF/7E0, which do not exist on that bus \u2014 so the pattern was read off the vehicle afterwards and pairs with this capture on the owner's identification, not on a fingerprint in the map."
+  "source": "obd-discover, 3 on-car captures 2026-08",
+  "notes": "1,929 identifiers on the first sweep; a later partial run added 36 more and 4 blocks it had missed. The VIN was unreadable on the first scan -- the 29-bit path was sending 7DF/7E0, which do not exist on that bus -- and the pattern was read off the vehicle by hand. The later run read it from the car itself, which is what confirms that fix on this truck."
 }

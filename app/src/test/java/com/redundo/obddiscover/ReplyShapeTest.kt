@@ -641,9 +641,21 @@ class RecordRichnessTest {
         assertTrue("shipped pids stay bare identifiers", pid.getString(0).matches(Regex("[0-9A-F]{4}")))
     }
 
-    @Test fun everyRecordCarriesItsVehicleAttributes() {
+    /**
+     * vPIC attributes come from decoding a VIN pattern, so a record without one cannot have
+     * them. The Ioniq 5 is the case: no engine ECU, so its VIN was recovered too late to be
+     * kept, and only its WMI survived. Requiring attributes everywhere would have forced a
+     * guess into that record, which is the opposite of what this database is for.
+     */
+    @Test fun everyIdentifiedRecordCarriesItsVehicleAttributes() {
         for ((f, r) in records()) {
-            assertTrue("${f.name} should carry vPIC attributes", r.has("vehicle"))
+            if (r.optString("vin_pattern").isEmpty()) {
+                assertTrue("${f.name} has no pattern, so it must say why",
+                    r.optString("notes").isNotEmpty())
+                continue
+            }
+            assertTrue("${f.name} has a pattern and should carry vPIC attributes",
+                r.has("vehicle"))
         }
     }
 

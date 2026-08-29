@@ -62,7 +62,12 @@ def fold(old, new, warn):
             continue
         sa[s["did"]] = s
     if sa: out["signals"] = [sa[k] for k in sorted(sa)]
-    for k in ("addressing", "protocol", "mode22", "mode22_evidence", "vehicle", "stats"):
+    # Scalars: taken when the record does not already have them, never overwritten --
+    # an existing `notes` is usually curated prose and a contribution should not clobber it.
+    # `notes` and `source` were missing from this list, so a brand-new record folded in
+    # through this tool silently lost the explanation of why it was incomplete.
+    for k in ("addressing", "protocol", "mode22", "mode22_evidence", "vehicle", "stats",
+              "notes", "source"):
         if new.get(k) and not out.get(k): out[k] = new[k]
     return out
 
@@ -85,6 +90,36 @@ def main():
         if b or af:
             assert af >= b, f"{k} shrank {b} -> {af}"
             print(f"  {k}: {b} -> {af}" + ("  (+%d)" % (af - b) if af > b else "  (unchanged)"))
+    # `detail` belongs in the sibling map, not the record: it is the full identifier list
+    # and the record only summarises it. Unioned like everything else.
+    mp = dst[:-5] + ".map.json"
+    det = new.get("detail") or []
+    if det:
+        m = json.load(open(mp)) if os.path.exists(mp) else {
+            "make": out.get("make", ""), "model": out.get("model", ""),
+            "_note": ("Every Mode-22 identifier this vehicle answered, by header. "
+                      "Identifiers only -- what they RETURNED is never committed, because "
+                      "an unidentified value can be a serial or an odometer."),
+            "identifiers": {}}
+        before = sum(len(v) for v in m["identifiers"].values())
+        for e in det:
+            h = e.get("header") or ""
+            ids = set(m["identifiers"].get(h, [])) | set(e.get("identifiers") or [])
+            m["identifiers"][h] = sorted(ids)
+        after = sum(len(v) for v in m["identifiers"].values())
+        assert after >= before, "map shrank"
+        m["identifier_count"] = len({i for v in m["identifiers"].values() for i in v})
+        m["identifiers"] = {k: v for k, v in sorted(m["identifiers"].items())}
+        print(f"  map identifiers: {before} -> {after}" + (f"  (+{after-before})" if after > before else ""))
+        out["identifier_count"] = m["identifier_count"]
+        out["map"] = os.path.basename(mp)
+        if not a.dry_run:
+            os.makedirs(os.path.dirname(mp), exist_ok=True)   # a new make has no folder yet
+            with open(mp, "w") as f:
+                json.dump({k: m[k] for k in ("make","model","_note","identifier_count","identifiers")
+                           if k in m}, f, indent=1); f.write("\n")
+    out.pop("detail", None)
+
     if a.dry_run:
         print("dry run; nothing written"); return
     os.makedirs(os.path.dirname(dst), exist_ok=True)
