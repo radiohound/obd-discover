@@ -971,3 +971,33 @@ class LicenceShapeTest {
             g.contains("THIRD-PARTY-NOTICES.md") && g.contains("ATTRIBUTION.txt"))
     }
 }
+
+/**
+ * The contributed pattern table is consulted before the network is.
+ *
+ * vehicles/ ships pattern -> make/model/year, and for a while nothing called it. A Subaru
+ * whose pattern JF2SJARC is IN the shipped asset still produced Subaru-MODEL.json with no
+ * model, because the only route to a name was an online lookup that is off by default.
+ * Shipping the table and not reading it is the whole feature missing its point.
+ */
+class OfflineModelLookupTest {
+    @Test fun captureAsksTheContributedTable() {
+        val cap = java.io.File("src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+        assertTrue("Capture must consult contributedId", cap.contains("VehicleId.contributedId(vin)"))
+        val offline = cap.indexOf("VehicleId.contributedId(vin)")
+        val online = cap.indexOf("Session.onlineVinLookup && vin.isNotEmpty()")
+        assertTrue("both paths must exist", offline > 0 && online > 0)
+        assertTrue("the offline answer must be tried before the network", offline < online)
+    }
+
+    @Test fun theShippedTableCanActuallyAnswerForAKnownCar() {
+        val patterns = org.json.JSONObject(
+            java.io.File("src/main/assets/vin_patterns.json").readText())
+            .getJSONObject("patterns")
+        // The exact case that failed: this pattern was bundled and went unread.
+        val a = patterns.optJSONArray("JF2SJARC")
+        assertNotNull("JF2SJARC must be in the shipped table", a)
+        assertEquals("Subaru", a!!.getString(0))
+        assertEquals("Forester", a.getString(1))
+    }
+}

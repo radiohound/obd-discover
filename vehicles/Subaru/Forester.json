@@ -80,6 +80,10 @@
     "015C": "engine oil temperature (degC)",
     "0165": "auxiliary input/output supported"
   },
+  "stats": {
+    "probes": 7733,
+    "blocks": 9
+  },
   "source": "obd-discover, CONTRIBUTE on-car 2026-08-28 (+ earlier captures); Mode-01 support scanned 2026-08-29",
   "notes": "7A2 answered on one run; it is documented by OBDb but outside the app's default sweep."
 }

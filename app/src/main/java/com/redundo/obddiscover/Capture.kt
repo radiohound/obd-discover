@@ -325,6 +325,24 @@ class CaptureRunner(
             // Optional, off by default, and never blocking the scan. Ten characters go out;
             // the six that identify this specific vehicle do not. See VinLookup.
             modelName = ""; modelClean = ""; modelSeries = ""; vpicRepo = ""
+            // THE OFFLINE ANSWER FIRST, because we may already have it. vehicles/ ships a
+            // pattern -> make/model/year table built from cars people scanned, and until
+            // now nothing consulted it: a Subaru whose pattern JF2SJARC is IN the shipped
+            // asset still came out of ADD VEHICLE as Subaru-MODEL.json with no model,
+            // because the only route to a name was a network lookup that is off by default.
+            //
+            // That was the whole point of shipping the patterns. It costs no network and no
+            // permission, and it is exactly as good as whoever contributed the record.
+            if (vin.isNotEmpty()) {
+                VehicleId.contributedId(vin)?.let { (_, model) ->
+                    if (model.isNotEmpty()) {
+                        modelClean = model
+                        modelName = listOfNotNull(info?.year?.toString(), model)
+                            .joinToString(" ")
+                        ble.log("model from contributed records: $model")
+                    }
+                }
+            }
             if (Session.onlineVinLookup && vin.isNotEmpty()) {
                 status = "looking up the model (first 10 VIN characters)..."
                 VinLookup.lookup(ctx, vin)?.let {
