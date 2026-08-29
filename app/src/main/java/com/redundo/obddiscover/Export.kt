@@ -70,7 +70,28 @@ object Export {
                           "protocol", "mode01", "mode21_ids")
         val out = JSONObject()
         for (k in keep) if (o.has(k)) out.put(k, o.get(k))
-        out.put("_note", "vin_key removed for sharing; wmi identifies the manufacturer only")
+        // `detail` was on the keep list because it records WHICH identifiers answered.
+        // It also records what they SAID: full_hits is [identifier, payload] pairs, so the
+        // export the README calls safe to attach to a public issue was carrying Mode-22
+        // response data -- the exact thing the list above excludes mode21 and mode09 for.
+        // An unknown Mode-22 value can be a serial or an odometer as easily as an unknown
+        // Mode-21 one. Identifiers stay; payloads go.
+        out.optJSONArray("detail")?.let { det ->
+            for (i in 0 until det.length()) {
+                val e = det.optJSONObject(i) ?: continue
+                val fh = e.optJSONArray("full_hits") ?: continue
+                val ids = JSONArray()
+                for (j in 0 until fh.length()) {
+                    when (val h = fh.opt(j)) {
+                        is JSONArray -> h.optString(0).takeIf { it.isNotEmpty() }?.let { ids.put(it) }
+                        is String -> ids.put(h)
+                    }
+                }
+                e.put("full_hits", ids)
+            }
+        }
+        out.put("_note", "vin_key removed for sharing; wmi identifies the manufacturer " +
+            "only; identifiers kept, response payloads removed")
         return out.toString(1).toByteArray()
     }
 
@@ -459,7 +480,28 @@ object Export {
         // here costs nothing in the APK and keeps a contribution from throwing away what
         // was measured. `detail` in particular holds WHICH identifiers answered, where
         // `blocks` holds only the 256-wide ranges they fall in.
-        m.optJSONArray("detail")?.let { out.put("detail", it) }
+        // Identifiers only. Copying `detail` straight through would publish payloads to a
+        // public issue, which is the same mistake scrubbedJson was making.
+        m.optJSONArray("detail")?.let { det ->
+            val clean = JSONArray()
+            for (i in 0 until det.length()) {
+                val e = det.optJSONObject(i) ?: continue
+                val ids = sortedSetOf<String>()
+                for (k in listOf("recon_hits", "full_hits")) {
+                    val a = e.optJSONArray(k) ?: continue
+                    for (j in 0 until a.length()) {
+                        when (val h = a.opt(j)) {
+                            is JSONArray -> h.optString(0).takeIf { it.isNotEmpty() }?.let { ids.add(it) }
+                            is String -> ids.add(h)
+                        }
+                    }
+                }
+                if (ids.isNotEmpty()) clean.put(JSONObject()
+                    .put("block", e.optString("name")).put("header", e.optString("header"))
+                    .put("identifiers", JSONArray(ids.toList())))
+            }
+            if (clean.length() > 0) out.put("detail", clean)
+        }
         m.optJSONArray("mode21_overlaps_mode01")?.let { out.put("mode21_mirrors_mode01", it) }
         m.optString("mode09_bitmap").takeIf { it.isNotEmpty() }
             ?.let { out.put("mode09_bitmap", it) }

@@ -36,5 +36,7 @@
     "22E3",
     "22E4"
   ],
+  "identifier_count": 257,
+  "map": "Ranger.map.json",
   "source": "obd-discover, 1 on-car capture(s) 2026-08"
 }

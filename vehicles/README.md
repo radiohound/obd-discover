@@ -90,6 +90,22 @@ name them from — which is what [`signals`](#signals-is-the-one-that-matters) i
 
 `notes` is for prose that is genuinely prose. If a fact has a shape, give it a field.
 
+## The full identifier list
+
+`blocks` are 256-wide ranges, so seventeen of them stand in for hundreds of real
+identifiers. The actual list lives beside the record:
+
+    vehicles/BMW/5-Series.json          the record       17 blocks
+    vehicles/BMW/5-Series.map.json      the full map    572 identifiers
+
+The record names the map in its `map` field and counts it in `identifier_count`. Maps are
+never shipped in the APK — the app works from blocks — and the merge script skips them.
+
+**Identifiers only, never what they returned.** A map lists which addresses answered. The
+values they gave back are not committed, because an unidentified Mode-22 value can be a
+serial or an odometer as easily as anything else. This is the same rule that keeps Mode-09
+and Mode-21 payloads out of a shared capture.
+
 ## Cars that are not CAN
 
 A K-line car has no headers and no blocks, and is still worth contributing — the

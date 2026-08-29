@@ -35,6 +35,8 @@
     "2258",
     "2259"
   ],
+  "identifier_count": 572,
+  "map": "5-Series.map.json",
   "pids": {
     "0101": "monitor status since DTCs cleared",
     "0103": "fuel system status",

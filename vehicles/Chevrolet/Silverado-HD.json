@@ -64,6 +64,8 @@
     "22FD",
     "22FE"
   ],
+  "identifier_count": 1929,
+  "map": "Silverado-HD.map.json",
   "stats": {
     "probes": 17441,
     "identifiers_found": 1929

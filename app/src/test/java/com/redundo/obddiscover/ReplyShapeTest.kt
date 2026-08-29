@@ -474,7 +474,7 @@ class VehicleDbTest {
 
     @Test fun everyRecordFileIsValidAndSafe() {
         val dir = java.io.File("../vehicles")
-        val files = dir.walkTopDown().filter { it.extension == "json" }.toList()
+        val files = dir.walkTopDown().filter { it.extension == "json" && !it.name.endsWith(".map.json") }.toList()
         assertTrue("expected seeded records", files.isNotEmpty())
         for (f in files) {
             val r = org.json.JSONObject(f.readText())
@@ -495,7 +495,7 @@ class VehicleDbTest {
  */
 class ContributeSchemaTest {
     private fun records() = java.io.File("../vehicles").walkTopDown()
-        .filter { it.extension == "json" }.map { it to org.json.JSONObject(it.readText()) }
+        .filter { it.extension == "json" && !it.name.endsWith(".map.json") }.map { it to org.json.JSONObject(it.readText()) }
 
     @Test fun aNonCanCarIsRepresentable() {
         val (_, h) = records().first { it.second.optString("model") == "Highlander" }
@@ -551,7 +551,7 @@ class ContributeSchemaTest {
  */
 class ModelNameTest {
     @Test fun noRecordCarriesAYearOrSeriesInsideItsModel() {
-        for (f in java.io.File("../vehicles").walkTopDown().filter { it.extension == "json" }) {
+        for (f in java.io.File("../vehicles").walkTopDown().filter { it.extension == "json" && !it.name.endsWith(".map.json") }) {
             val r = org.json.JSONObject(f.readText())
             val m = r.optString("model")
             if (m.isEmpty()) continue
@@ -596,7 +596,7 @@ class ModelNameTest {
  */
 class RecordRichnessTest {
     private fun records() = java.io.File("../vehicles").walkTopDown()
-        .filter { it.extension == "json" }.map { it to org.json.JSONObject(it.readText()) }
+        .filter { it.extension == "json" && !it.name.endsWith(".map.json") }.map { it to org.json.JSONObject(it.readText()) }
 
     @Test fun theVerifiedOdometerIsAField() {
         val (_, bmw) = records().first { it.second.optString("model") == "5 Series" }
@@ -754,5 +754,45 @@ class Mode01OnCanTest {
         val missing = Mode01.NAMES.keys.filter { !std.has(it.substring(2)) }
         assertTrue("PIDs named on screen but absent from the standard table: $missing",
             missing.isEmpty())
+    }
+}
+
+
+/**
+ * Maps list which identifiers answered. They must never list what those identifiers said.
+ *
+ * This is not hypothetical. `detail` was on scrubbedJson's keep list because it records
+ * WHICH identifiers answered -- and its full_hits are [identifier, payload] pairs, so the
+ * export the README calls safe to attach to a public issue was carrying Mode-22 response
+ * data. The keep list excludes mode09 and mode21 for exactly that reason, on exactly that
+ * argument: an unidentified value can be a serial or an odometer.
+ */
+class NoPayloadsTest {
+    @Test fun committedMapsCarryIdentifiersOnly() {
+        val maps = java.io.File("../vehicles").walkTopDown()
+            .filter { it.name.endsWith(".map.json") }.toList()
+        assertTrue("expected committed maps", maps.isNotEmpty())
+        for (f in maps) {
+            val ids = org.json.JSONObject(f.readText()).getJSONObject("identifiers")
+            for (h in ids.keys()) {
+                val a = ids.getJSONArray(h)
+                for (i in 0 until a.length()) {
+                    // A bare identifier string. A [id, payload] pair would arrive as an
+                    // array, which is precisely the shape that leaked.
+                    assertTrue("${f.name}: $h[$i] is not a bare identifier",
+                        a.opt(i) is String)
+                }
+            }
+        }
+    }
+
+    @Test fun bothExportsStripPayloads() {
+        val src = java.io.File("src/main/java/com/redundo/obddiscover/Export.kt").readText()
+        assertTrue("scrubbedJson must reduce full_hits to identifiers",
+            src.contains("e.put(\"full_hits\", ids)"))
+        assertTrue("contribute must emit identifiers, not detail verbatim",
+            src.contains("\"identifiers\", JSONArray(ids.toList())"))
+        assertFalse("contribute must not copy detail wholesale",
+            src.contains("out.put(\"detail\", it)"))
     }
 }

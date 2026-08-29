@@ -31,6 +31,8 @@
     "2230",
     "22F1"
   ],
+  "identifier_count": 246,
+  "map": "Forester.map.json",
   "pids": {
     "0101": "monitor status since DTCs cleared",
     "0103": "fuel system status",

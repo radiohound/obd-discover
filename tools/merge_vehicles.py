@@ -31,7 +31,9 @@ def main(out_path):
         lambda: {"hdr": set(), "blk": set(), "pid": set(), "m21": set(), "m22": "",
                  "sig": {}})
     files = [os.path.join(d, f) for d, _, fs in os.walk(SRC)
-             for f in fs if f.endswith(".json")]
+             # *.map.json are the full identifier lists that sit beside a record. They
+             # are for people, never shipped, and are not records -- skip them.
+             for f in fs if f.endswith(".json") and not f.endswith(".map.json")]
     for p in sorted(files):
         try:
             r = json.load(open(p))
