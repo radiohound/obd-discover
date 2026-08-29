@@ -280,12 +280,20 @@ object Export {
             }.toByteArray())
             z.closeEntry(); names.add("report.txt")
 
-            if (adapterLog.isNotEmpty()) {
-                z.putNextEntry(ZipEntry("adapter-log.txt"))
-                z.write((redactAddresses(redactVins(adapterLog.reversed().joinToString("\n")))
-                    + "\n").toByteArray())
-                z.closeEntry(); names.add("adapter-log.txt")
-            }
+            // ALWAYS PRESENT, even when empty. Omitting it produced a bundle with no log at
+            // all, which reads as a broken export rather than as "nothing has run yet" --
+            // and the reader cannot tell which. Said in the file instead.
+            z.putNextEntry(ZipEntry("adapter-log.txt"))
+            z.write(
+                (if (adapterLog.isEmpty())
+                    "(no adapter activity recorded)\n\n" +
+                    "Nothing had been attempted when this report was taken. Tap START, let it\n" +
+                    "reach the vehicle, then take the report again -- the log is what makes a\n" +
+                    "connection problem diagnosable.\n"
+                 else redactAddresses(redactVins(adapterLog.reversed().joinToString("\n"))) + "\n")
+                    .toByteArray(),
+            )
+            z.closeEntry(); names.add("adapter-log.txt")
             // The map, if there is one -- scrubbed, and only the newest.
             latest(dir, "discover-", ".json")?.let {
                 z.putNextEntry(ZipEntry(it.name))

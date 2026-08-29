@@ -240,3 +240,22 @@ class ReportBundleTest {
         assertTrue(!out.contains("WBA00000000000000"))
     }
 }
+
+/** The log file must always be in the bundle, so an empty one cannot look like a broken export. */
+class ReportAlwaysHasLogTest {
+    @Test fun theExportAlwaysWritesAnAdapterLogEntry() {
+        val src = java.io.File(
+            "app/src/main/java/com/redundo/obddiscover/Export.kt",
+        ).takeIf { it.exists() } ?: java.io.File(
+            "../app/src/main/java/com/redundo/obddiscover/Export.kt",
+        )
+        val t = src.readText()
+        val i = t.indexOf("fun report(")
+        assertTrue("report() must exist", i > 0)
+        val body = t.substring(i, minOf(i + 4000, t.length))
+        assertTrue("adapter-log.txt must not be conditional on a non-empty log",
+            !body.contains("if (adapterLog.isNotEmpty())"))
+        assertTrue("and must say so when there is nothing",
+            body.contains("no adapter activity recorded"))
+    }
+}
