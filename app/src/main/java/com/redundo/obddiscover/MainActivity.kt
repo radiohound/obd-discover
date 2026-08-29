@@ -259,11 +259,19 @@ class MainActivity : ComponentActivity() {
                             exportNote = when {
                                 b == null -> "nothing discovered yet to contribute"
                                 cap.modelClean.isEmpty() ->
-                                    "${b.file.name} — no model resolved; name it before opening a PR"
+                                    "opening a draft issue — no model resolved, name it before you submit"
                                 else ->
-                                    "${b.file.name} — VIN pattern only (8 chars), no serial, no payloads"
+                                    "opening a draft issue — VIN pattern only (8 chars), no serial. " +
+                                        "Nothing is posted until you tap Submit."
                             }
-                            b?.let { Export.share(this@MainActivity, it.file, "application/json") }
+                            // Opens a PREFILLED DRAFT. GitHub will not create the issue
+                            // until the person submits it, so the app never publishes by
+                            // itself. The file stays on disk either way.
+                            b?.let {
+                                Export.openUrl(this@MainActivity, Export.contributeUrl(
+                                    it.file, cap.info?.make ?: "", cap.modelClean,
+                                    cap.info?.year))
+                            }
                         },
                     ) { Text("CONTRIBUTE") }
                 }

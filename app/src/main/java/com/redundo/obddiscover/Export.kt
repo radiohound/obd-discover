@@ -458,6 +458,43 @@ object Export {
         return Bundle(f, listOf(f.name), scrubbed = true)
     }
 
+    /** Where contributed records go. One repo, so a record cannot be aimed elsewhere. */
+    private const val CONTRIB_REPO = "https://github.com/radiohound/obd-discover"
+
+    /**
+     * A prefilled "new issue" on the project, carrying the record in the body.
+     *
+     * IT OPENS A DRAFT AND NOTHING MORE. GitHub will not create the issue until the person
+     * reads it and taps Submit, so the app never publishes on its own -- it fills a form
+     * and hands over. That is deliberate: every record needs a human to look at it, and the
+     * first two on-car runs are why. They decoded both cars correctly and still wrote a
+     * model name that would have siloed every vehicle by year.
+     *
+     * An issue rather than a pull request because a PR needs a GitHub token stored on the
+     * device and a second network path that uploads vehicle data. This needs neither, and
+     * the record is 0.4-1.6 KB, which fits a URL with room to spare.
+     */
+    fun contributeUrl(record: File, make: String, model: String, year: Int?): String {
+        val what = listOfNotNull(year?.toString(), make.ifEmpty { null },
+                                 model.ifEmpty { null }).joinToString(" ")
+        val title = "vehicle: " + what.ifEmpty { "unidentified — needs a model name" }
+        val body = buildString {
+            append("Adding a vehicle to `vehicles/`, captured with OBD Discover.\n\n")
+            if (model.isEmpty())
+                append("**The model did not resolve** — please help name it before merge.\n\n")
+            append("```json\n").append(record.readText().trim()).append("\n```\n\n")
+            append("_No VIN serial is included: the record carries VIN positions 1-8 only._\n")
+        }
+        fun enc(v: String) = java.net.URLEncoder.encode(v, "UTF-8").replace("+", "%20")
+        return "$CONTRIB_REPO/issues/new?labels=vehicle&title=${enc(title)}&body=${enc(body)}"
+    }
+
+    /** Opens a URL in the browser. Used only for the contribute draft. */
+    fun openUrl(ctx: Context, url: String) {
+        ctx.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
     fun share(ctx: Context, zip: File, mime: String = "application/zip") {
         val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", zip)
         val i = Intent(Intent.ACTION_SEND).apply {
