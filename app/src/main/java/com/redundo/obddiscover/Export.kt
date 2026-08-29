@@ -489,10 +489,35 @@ object Export {
         return "$CONTRIB_REPO/issues/new?labels=vehicle&title=${enc(title)}&body=${enc(body)}"
     }
 
-    /** Opens a URL in the browser. Used only for the contribute draft. */
+    /**
+     * Opens a URL in a BROWSER, explicitly, never in whichever app claims the domain.
+     *
+     * PRECAUTIONARY, NOT A MEASURED FIX. The GitHub app registers github.com as a verified
+     * app link, and it cannot render a prefilled new-issue form, so a device that routes
+     * the link there would get a 404 with a correct URL. On the test device Chrome won the
+     * resolution anyway, so this has never actually been observed -- it is cheap insurance
+     * against a real failure mode, not a repair of one.
+     *
+     * The 404 seen during testing was neither: the repository is private and the phone's
+     * browser was not signed in, so GitHub answered 404 rather than prompting to log in.
+     *
+     * The selector restricts resolution to handlers of a bare "https:" scheme, which is
+     * browsers only. If nothing matches -- a device with no browser at all -- fall back to
+     * the plain intent rather than throwing, so the caller still gets whatever is there.
+     */
     fun openUrl(ctx: Context, url: String) {
-        ctx.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        val uri = android.net.Uri.parse(url)
+        val browserOnly = Intent(Intent.ACTION_VIEW, uri).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            selector = Intent(Intent.ACTION_VIEW).apply {
+                addCategory(Intent.CATEGORY_BROWSABLE)
+                data = android.net.Uri.fromParts("https", "", null)
+            }
+        }
+        runCatching { ctx.startActivity(browserOnly) }.onFailure {
+            ctx.startActivity(Intent(Intent.ACTION_VIEW, uri)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
     }
 
     fun share(ctx: Context, zip: File, mime: String = "application/zip") {
