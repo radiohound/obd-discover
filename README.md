@@ -382,17 +382,21 @@ breaks every future update.
 
 ## Licence
 
-MIT for the source. Five bundled data files come from third parties and keep their own terms:
+MIT for the source. Some bundled data files come from third parties and keep their own terms:
 
-- `obdb_hints.json`, `obdb_supported.json` — adapted from [OBDb](https://github.com/OBDb),
-  **CC BY-SA 4.0**. Locations only: which header, which service, which block, which DIDs
-  answer — not the signal names or decode formulas. As adaptations they stay CC BY-SA 4.0, so
-  redistributing them means crediting OBDb and keeping that licence.
+- `obdb_hints.json`, `obdb_supported.json`, `obdb_models.json` — adapted from
+  [OBDb](https://github.com/OBDb), **CC BY-SA 4.0**. Locations only: which header, which
+  service, which block, which DIDs answer — not the signal names or decode formulas. As
+  adaptations they stay CC BY-SA 4.0, so redistributing them means crediting OBDb and keeping
+  that licence.
 - `dtc_generic.json` — [dtc-database](https://github.com/Wal33D/dtc-database), **MIT**.
 - `wmi_to_make.json` — derived from [NHTSA vPIC](https://vpic.nhtsa.dot.gov), **public domain**.
+- `pid_standard.json` — Mode-01 and Mode-09 names from **SAE J1979 / ISO 15031-5**, the
+  standard that defines them; no licence attaches.
 
 Parts of the anchor decoding and the advisory drive check are ported from
 [obd-gauge-cluster](https://github.com/cheeseprince/obd-gauge-cluster) (MIT, © 2026 Alan Young).
 
-See [LICENSE](LICENSE), [ATTRIBUTION](app/src/main/assets/ATTRIBUTION.txt), and
-**sources & licence** inside the app.
+Full text in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), which is also what the app
+shows under **sources & licence** — the in-app copy is generated from it at build time, so
+the two cannot disagree. [LICENSE](LICENSE) is the MIT text and nothing else.

@@ -85,6 +85,23 @@ android {
     }
 }
 
+// The third-party notices the app shows under "sources & licence", generated from the
+// single copy at the repo root.
+//
+// THERE USED TO BE TWO, AND THEY HAD ALREADY DRIFTED. LICENSE carried a copy and
+// assets/ATTRIBUTION.txt carried another; they were 15% similar, and only one of them
+// mentioned SAE J1979. The notices that must travel with the APK are exactly the ones
+// nobody re-reads, so the fix is to make disagreement impossible rather than to check.
+//
+// LICENSE is now pure MIT, which also settles GitHub reporting the repo as NOASSERTION:
+// its detector matches the whole file, and 65 lines of appended notices put it under the
+// threshold, so an automated reader concluded there was no licence at all.
+val notices = tasks.register<Copy>("copyNotices") {
+    from(rootProject.file("THIRD-PARTY-NOTICES.md"))
+    into(layout.projectDirectory.dir("src/main/assets"))
+    rename { "ATTRIBUTION.txt" }
+}
+
 // Compiles vehicles/**/*.json into one shipped asset.
 //
 // A BUILD STEP RATHER THAN A COMMITTED FILE, for two reasons. One file per vehicle means
@@ -106,14 +123,14 @@ val mergeVehicles = tasks.register<Exec>("mergeVehicles") {
 
 // Every variant's asset merge waits on it, so a plain `assembleDebug` regenerates it.
 tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }
-    .configureEach { dependsOn(mergeVehicles) }
+    .configureEach { dependsOn(mergeVehicles, notices) }
 
 // ReadmeClaimsTest reads these at runtime, so Gradle has to know they are test inputs.
 // Without this the task stays UP-TO-DATE when only the README changes -- the test passes on
 // a stale result and the whole point of it is lost. Verified by breaking a number on purpose
 // and watching it NOT fail.
 tasks.withType<Test>().configureEach {
-    dependsOn(mergeVehicles)
+    dependsOn(mergeVehicles, notices)
     inputs.file(rootProject.file("README.md"))
     inputs.dir(layout.projectDirectory.dir("src/main/assets"))
     inputs.file(layout.projectDirectory.file("build.gradle.kts"))

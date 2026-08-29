@@ -922,3 +922,52 @@ class ScanRunsOnCachedCaptureTest {
             cap.contains("if (stdPids.size > had)"))
     }
 }
+
+/**
+ * LICENSE is the MIT text and nothing else, and every shipped asset has a notice.
+ *
+ * GitHub's licence detector matches the WHOLE file against known texts. Sixty-five lines of
+ * appended notices put it under the threshold, so the API reported spdx_id NOASSERTION --
+ * which to a dependency scanner or a policy gate reads as "no licence", not "MIT plus
+ * notices". The notices moved to THIRD-PARTY-NOTICES.md rather than being deleted: they
+ * carry a CC BY-SA obligation that travels with the APK.
+ */
+class LicenceShapeTest {
+    private fun root(n: String) = java.io.File("../$n").readText()
+
+    @Test fun licenseIsOnlyTheMitText() {
+        val lines = root("LICENSE").trim().lines()
+        assertEquals("MIT is 21 lines; anything more is what tripped the detector", 21, lines.size)
+        assertTrue("must start with the MIT title", lines[0].contains("MIT License"))
+        for (word in listOf("CC BY-SA", "OBDb", "DERIVED SOURCE", "THIRD-PARTY")) {
+            assertFalse("$word belongs in THIRD-PARTY-NOTICES.md, not LICENSE",
+                root("LICENSE").contains(word))
+        }
+    }
+
+    @Test fun everyShippedDataFileHasANotice() {
+        val notices = root("THIRD-PARTY-NOTICES.md")
+        val assets = java.io.File("src/main/assets").listFiles()
+            ?.filter { it.extension == "json" } ?: emptyList()
+        assertTrue("expected bundled assets", assets.isNotEmpty())
+        for (a in assets) {
+            // obdb_models.json shipped for weeks with no notice at all, while carrying a
+            // share-alike obligation. A missing name is the failure mode, so name them all.
+            assertTrue("${a.name} has no entry in THIRD-PARTY-NOTICES.md",
+                notices.contains(a.name))
+        }
+    }
+
+    @Test fun theShareAlikeObligationIsStated() {
+        val n = root("THIRD-PARTY-NOTICES.md")
+        assertTrue("CC BY-SA must be named", n.contains("CC BY-SA 4.0"))
+        assertTrue("and must say it travels with the APK",
+            n.contains("travels with the APK"))
+    }
+
+    @Test fun theInAppCopyIsGeneratedNotMaintained() {
+        val g = java.io.File("build.gradle.kts").readText()
+        assertTrue("the shipped notices must be copied from the root file",
+            g.contains("THIRD-PARTY-NOTICES.md") && g.contains("ATTRIBUTION.txt"))
+    }
+}
