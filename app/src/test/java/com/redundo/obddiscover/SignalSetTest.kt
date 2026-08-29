@@ -202,3 +202,41 @@ class VinRedactionTest {
         assertEquals(s, Export.redactVins(s))
     }
 }
+
+/**
+ * The troubleshooting bundle is meant for a public issue tracker, so it has no raw variant
+ * and no choice to get wrong. Everything identifying comes out.
+ */
+class ReportBundleTest {
+
+    @Test fun bluetoothAddressesAreRedacted() {
+        val line = "connectGatt(autoConnect=true) -> D2:E0:2F:8D:4D:46"
+        val out = Export.redactAddresses(line)
+        assertTrue(!out.contains("D2:E0:2F:8D:4D:46"))
+        assertTrue(out.contains("[MAC REDACTED]"))
+        assertTrue("the diagnostic prefix survives", out.contains("connectGatt"))
+    }
+
+    /** Which adapter it is must survive -- that is the part anyone diagnosing needs. */
+    @Test fun adapterIdentitySurvives() {
+        val out = Export.redactAddresses("bound GATT profile 'vlinker 18f0'")
+        assertEquals("bound GATT profile 'vlinker 18f0'", out)
+    }
+
+    /** A timestamp or a hex payload must not look like a MAC. */
+    @Test fun ordinaryTextIsUntouched() {
+        for (s in listOf(
+            "08-28 19:05:50.710 protocol: auto-detected A3",
+            "sweep 2258xx 30/FF — 296 DIDs found",
+            "4100BE3FA813 410098188011",
+        )) assertEquals(s, Export.redactAddresses(s))
+    }
+
+    /** Both redactions compose: a log line can carry a MAC and a VIN. */
+    @Test fun macAndVinBothGo() {
+        val line = "D2:E0:2F:8D:4D:46 saw WBA00000000000000"
+        val out = Export.redactAddresses(Export.redactVins(line))
+        assertTrue(!out.contains("D2:E0"))
+        assertTrue(!out.contains("WBA00000000000000"))
+    }
+}

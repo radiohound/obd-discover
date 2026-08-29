@@ -233,6 +233,72 @@ object Export {
         return out
     }
 
+    /**
+     * A small bundle for a public issue, built from whatever state exists.
+     *
+     * The capture exports need a successful capture. This one does not -- the case it serves
+     * is the adapter that will not connect, or the car that answers nothing, where there is
+     * no discover.json to attach and the useful evidence is entirely in the log.
+     *
+     * ALWAYS SCRUBBED. It is meant for an issue tracker, so there is no raw variant and no
+     * choice to get wrong. VINs are redacted, and Bluetooth addresses go too: an adapter MAC
+     * is not the phone's, but it is a stable identifier and it costs nothing to drop. Which
+     * adapter it is survives in the ATZ string and the bound GATT profile, which is the part
+     * anyone diagnosing needs.
+     */
+    fun report(
+        ctx: Context, adapterLog: List<String>, ident: String?, profile: String?,
+        mtu: Int, connected: Boolean, protocol: String, phase: String, status: String,
+        info: VehicleId.Info?,
+    ): Bundle? {
+        val dir = File(ctx.getExternalFilesDir(null), "logs").apply { mkdirs() }
+        val out = File(dir, "report.zip")
+        val names = ArrayList<String>()
+        ZipOutputStream(FileOutputStream(out)).use { z ->
+            z.putNextEntry(ZipEntry("report.txt"))
+            z.write(buildString {
+                appendLine("OBD Discover — troubleshooting report")
+                appendLine("=====================================")
+                appendLine()
+                appendLine("Build:      ${BuildTag.ID}")
+                appendLine("Android:    ${android.os.Build.VERSION.RELEASE} " +
+                    "(API ${android.os.Build.VERSION.SDK_INT})")
+                appendLine("Device:     ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+                appendLine()
+                appendLine("Adapter:    ${ident?.trim() ?: "not identified"}")
+                appendLine("GATT:       ${profile ?: "none bound"}   mtu $mtu   " +
+                    (if (connected) "connected" else "not connected"))
+                appendLine("Protocol:   ${protocol.ifEmpty { "not detected" }}")
+                appendLine()
+                appendLine("Vehicle:    ${info?.year?.toString() ?: "?"} ${info?.make ?: "unknown make"}" +
+                    (if (info?.wmi.isNullOrEmpty()) "" else "  (WMI ${info?.wmi})"))
+                appendLine("Phase:      $phase")
+                appendLine("Status:     $status")
+                appendLine()
+                appendLine("No VIN, no Bluetooth address and no drive data are in this file.")
+                appendLine("adapter-log.txt is what was ASKED, not merely what answered.")
+            }.toByteArray())
+            z.closeEntry(); names.add("report.txt")
+
+            if (adapterLog.isNotEmpty()) {
+                z.putNextEntry(ZipEntry("adapter-log.txt"))
+                z.write((redactAddresses(redactVins(adapterLog.reversed().joinToString("\n")))
+                    + "\n").toByteArray())
+                z.closeEntry(); names.add("adapter-log.txt")
+            }
+            // The map, if there is one -- scrubbed, and only the newest.
+            latest(dir, "discover-", ".json")?.let {
+                z.putNextEntry(ZipEntry(it.name))
+                z.write(scrubbedJson(it)); z.closeEntry(); names.add(it.name)
+            }
+        }
+        return Bundle(out, names, true)
+    }
+
+    /** Bluetooth addresses out of anything bound for an issue tracker. */
+    internal fun redactAddresses(text: String): String =
+        Regex("\\b([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\\b").replace(text, "[MAC REDACTED]")
+
     /** column,name,unit — keyed by the exact drive-CSV column string. */
     internal fun namesCsv(rows: List<Triple<String, String, String>>, from: String) = buildString {
         appendLine("# Signal names for the columns in discovered-*.csv.")

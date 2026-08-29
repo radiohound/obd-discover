@@ -250,7 +250,16 @@ temperature can only be identified that way, and it works parked.
 
 ## Reporting something
 
-Early on this will change often, so a report is much more useful with two things in it:
+Tap **REPORT** and share the zip. It is always available — including when nothing connected
+and there is no capture to export — and it is always scrubbed, because it exists to be
+attached to an issue. It holds the build tag, your Android version and device model, what
+the adapter identified itself as, the protocol, and the adapter log. No VIN, no Bluetooth
+address, no drive data.
+
+If the problem is about a scan rather than a connection, a **scrubbed export** is better —
+same log, plus the map and the drive.
+
+Either way a report is much more useful with two things in it:
 
 - **The build tag**, shown under the app's title on the main screen (e.g.
   `build 2026-08-28y · non-CAN progress bar`) and written into the top of every export.

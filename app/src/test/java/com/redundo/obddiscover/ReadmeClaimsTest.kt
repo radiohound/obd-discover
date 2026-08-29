@@ -263,6 +263,12 @@ class ReadmeClaimsTest {
     @Test fun reportingSectionPointsAtRealThings() {
         claims("## Reporting something")
         claims("adapter-log.txt")
+        claims("REPORT")
+        // The README promises the report carries no VIN and no MAC. Both redactions
+        // must therefore exist and be applied on that path.
+        val e = source("Export.kt")
+        assertTrue("report() must redact VINs", e.contains("redactVins(adapterLog"))
+        assertTrue("report() must redact addresses", e.contains("redactAddresses(redactVins"))
         // the build tag really is on the main screen and in the export
         assertTrue(source("MainActivity.kt").contains("BuildTag.ID"))
         assertTrue(source("Export.kt").contains("BuildTag.ID"))

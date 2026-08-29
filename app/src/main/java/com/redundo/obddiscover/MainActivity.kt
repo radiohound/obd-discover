@@ -244,6 +244,26 @@ class MainActivity : ComponentActivity() {
                         },
                     ) { Text("EXPORT RAW") }
                 }
+                // Always available, unlike the capture exports, which need a capture. The
+                // case this serves is the adapter that will not connect or the car that
+                // answers nothing -- where there is no discover.json and the evidence is
+                // entirely in the log.
+                Button(
+                    onClick = {
+                        val b = runCatching {
+                            Export.report(
+                                this@MainActivity, ble.connLog.toList(), ident,
+                                ble.boundProfile, ble.mtu, ble.connected,
+                                cap.protocol, cap.phase.name, cap.status, cap.info,
+                            )
+                        }.getOrNull()
+                        if (b == null) exportNote = "could not build a report"
+                        else {
+                            exportNote = "report: ${b.contents.size} files, no VIN or MAC"
+                            Export.share(this@MainActivity, b.file)
+                        }
+                    },
+                ) { Text("REPORT") }
                 // Re-map sits OUTSIDE the DONE/FAILED gate above. It used to be inside it,
                 // so the only route to the button that skips a scan was to start a scan and
                 // stop it -- and on a non-CAN vehicle Stop did nothing, which made it
