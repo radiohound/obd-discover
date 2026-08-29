@@ -894,3 +894,31 @@ class MultiEcuBitmapTest {
         assertEquals(2, Obd.payloadsOf("0100", raw).size)
     }
 }
+
+/**
+ * The Mode-01 scan must run on a cached capture, not only on a re-map.
+ *
+ * Putting it in the discovery branch looked right and was backwards: a vehicle that is
+ * already mapped skips discovery, so the cars most likely to be plugged in again were
+ * exactly the ones that would never scan. Getting the data would have meant forcing a
+ * full re-map -- fifteen minutes to an hour -- for seven requests worth of answers.
+ */
+class ScanRunsOnCachedCaptureTest {
+    private val cap =
+        java.io.File("src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+
+    @Test fun theScanPrecedesTheCacheDecision() {
+        val scan = cap.indexOf("Mode-01 bitmap scan")
+        val cached = cap.indexOf("val cached = if (forceDiscover)")
+        assertTrue("both must exist", scan > 0 && cached > 0)
+        assertTrue("the scan must run before the cache branch is taken", scan < cached)
+    }
+
+    @Test fun aCacheHitFoldsTheScanIntoTheStoredMap() {
+        assertTrue("a cache hit must update the stored map",
+            cap.contains("cached map updated"))
+        // Only ever upward: a short scan must not overwrite a fuller stored list.
+        assertTrue("and must not replace a fuller list with a shorter one",
+            cap.contains("if (stdPids.size > had)"))
+    }
+}
