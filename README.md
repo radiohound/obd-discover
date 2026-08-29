@@ -105,8 +105,9 @@ car in front of it:
 | Documented block and header locations | 2,218 rows across **58 makes** | OBDb (CC BY-SA 4.0) |
 | DIDs known to answer | 13,723 across **44 makes** — 2,039 for BMW alone, 1,075 Volkswagen, 1,001 Audi | OBDb (CC BY-SA 4.0) |
 | Model-specific locations | 147 models across 33 makes | OBDb (CC BY-SA 4.0) |
-| WMI → manufacturer | 492 codes | NHTSA vPIC (public domain) |
+| WMI → manufacturer | 461 codes | NHTSA vPIC (public domain) |
 | Generic trouble codes | 9,415 — 7,387 P, 1,230 U, 498 C, 300 B | dtc-database (MIT) |
+| **Locations measured on real cars** | one record per contributed vehicle | [`vehicles/`](vehicles/) — this project |
 
 Where a make has model-specific data and the optional online lookup is on, the app resolves
 the model from the VIN via vPIC and uses it to select that model's locations rather than the
@@ -117,6 +118,13 @@ It also tries to recognise a model from the locations that answered, without any
 path has never produced a match on a real vehicle and should not be relied on: OBDb documents
 models across modules this app deliberately never probes, so the pairs that would tell two
 models apart are usually invisible to it.
+
+Since this release the app also carries its own database, in [`vehicles/`](vehicles/): one
+record per car somebody actually scanned, holding the headers, blocks, PIDs and Mode-21
+identifiers it really answered. **These lead the hint order**, ahead of the community lists,
+because they were observed rather than documented. The community tables are not replaced —
+they still supply everything they know that was not seen on a car, and they cover 58 makes
+where this database currently covers a handful.
 
 **Hints reorder a sweep; they never restrict one.** This matters more than the table sizes. On a
 BMW F10 with six real Mode-22 blocks, three were absent from the community list — so a scan that
@@ -166,17 +174,30 @@ year. Thousands of cars share any given ten characters, so what leaves the phone
 model rather than a car. Answers are cached by that prefix, so a model is looked up once
 ever — a second car of the same model and year costs no request.
 
-A bundled table was considered and rejected. Size was not the obstacle: patterns for the 147
-models here would be 30–60 KB, the smallest asset in the app. Valid VIN patterns are sparse
-and cannot be discovered by enumeration — 42 constructed BMW prefixes were tried and none
-decoded, while one taken from a real vehicle did. NHTSA does not publish the pattern table
-through its API, and a copy extracted from the full database goes stale as model years add
-patterns.
+Building the equivalent table offline by enumeration was tried and measured, and it does not
+work. Brute-forcing VIN prefixes against vPIC names a model for **31% of WMIs** (14 of a
+random 45 of the 396 candidates). The rest are not slow, they are unreachable: vPIC decodes
+from a pattern table, so enumeration only succeeds where a make keys on the first two VDS
+characters. Acura's `19U` returns nothing at prefix depth 5, 6, 7 or 8 — by depth 8 the space
+is 33⁵ and sampled combinations are not real VINs. Ford, Lincoln, BMW, Toyota, Audi and
+Suzuki all fail the same way. vPIC's `DecodeWMI` is silent for most imports too, with no
+answer for `JTM`, `WBA`, `KM8` or `JF2`.
+
+That is the argument for [`vehicles/`](vehicles/). One scan supplies the model *and* the
+locations, from the car, for any make — which is what no public source does.
 
 **No capture file contains the VIN.** Captures carry the 3-character WMI (which identifies a
 manufacturer, not a car) and the first 4 bytes of a SHA-256 of the VIN, used only to recognise a
 vehicle the app has mapped before. The scrubbed export drops even that hash, because someone
 holding a candidate VIN could hash it and test for a match.
+
+**CONTRIBUTE writes VIN positions 1–8** — five characters more than a capture file, and the
+only place the app emits more than the WMI. Those are WMI plus VDS: model, body, engine and
+restraint, shared by millions of cars and published by vPIC itself as a *pattern*. Position 9
+is a check digit, 11 the plant, and **12–17 the serial**, and none of them are written.
+`tools/merge_vehicles.py` refuses to build if a record carries more, so a mistake fails the
+build rather than reaching an APK. Mode-09 and Mode-21 payloads are excluded for the reason
+the scrubbed export excludes them: a Mode-09 record *is* the VIN.
 
 The single exception is deliberate and is the point of the button: **EXPORT RAW writes the VIN**
 into the bundle's `README.txt`, because that export exists for the owner's own records. The file
@@ -247,10 +268,34 @@ scanning, not something this app wants; denying it stops the adapter being found
    green when there is enough.
 5. **EXPORT SCRUBBED** gives you a zip that is safe to attach to a public issue.
    **EXPORT RAW** keeps the VIN and is for your own records.
+   **CONTRIBUTE** writes one small JSON record for [`vehicles/`](vehicles/) — see below.
 
 **CONTROLS TEST** is the other half: you operate the air conditioning, lights, brakes
 and steering to a prompt while it logs. Fields with no relationship to speed or
 temperature can only be identified that way, and it works parked.
+
+## Contributing a vehicle
+
+The tables this app ships with are only as good as what people have written down, and the
+BMW is the standing proof that what is written down is not enough: three of the F10's six
+real Mode-22 blocks are absent from the community list, including one holding 227
+identifiers. A scan of your car fixes that for everyone who owns one.
+
+1. Scan the car, then tap **CONTRIBUTE** (the blue button).
+2. Put the file in `vehicles/<Make>/` and open a pull request.
+
+A record holds VIN positions 1–8, the model, and which identifiers answered — never the
+serial, never a payload. One file per vehicle, so two people adding two cars never touch the
+same file and their pull requests never conflict. `tools/merge_vehicles.py` validates every
+record and compiles them into the shipped asset at build time; if a record carries too much
+of a VIN, the build fails rather than the data shipping.
+
+K-line cars are wanted too, and are not second-class: a Highlander's record carries 63
+Mode-21 identifiers, 20 Mode-01 PIDs and the finding that Mode 22 answers nothing at all on
+it — which is why the next Highlander need not spend a sweep discovering the same silence.
+
+[`vehicles/README.md`](vehicles/README.md) has the schema and the full list of what must
+never appear in a record.
 
 ## Reporting something
 

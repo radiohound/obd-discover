@@ -7,6 +7,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -377,10 +378,86 @@ object Export {
     }
 
     /** Hand the bundle to the share sheet. The destination is the owner's choice. */
-    fun share(ctx: Context, zip: File) {
+    /**
+     * One vehicles/ record, ready to drop into a pull request.
+     *
+     * THE ONE EXPORT THAT WIDENS WHAT LEAVES THE PHONE, deliberately and by five
+     * characters. Everywhere else this app emits the WMI alone (3 chars) and a SHA-256 of
+     * the VIN. A record carries positions 1-8: WMI plus VDS, which encode model, body,
+     * engine and restraint. Millions of cars share those, vPIC publishes them as a
+     * "pattern", and they cannot be traced to one vehicle. Position 9 is a check digit,
+     * 11 the plant, and 12-17 the SERIAL -- take(8) is what keeps every one of them off
+     * the file, and tools/merge_vehicles.py rejects the record if anything longer arrives.
+     *
+     * Payloads stay out for the same reason scrubbedJson keeps them out: a Mode-09 record
+     * IS the VIN, and an unidentified one-byte Mode-21 value may be a serial. What a
+     * record carries is WHICH identifiers answered -- headers and 256-DID blocks -- which
+     * is the discovery, and is the part no public source has.
+     */
+    fun contribute(ctx: Context, info: VehicleId.Info?, model: String, vinKey: String): Bundle? {
+        val dir = File(ctx.getExternalFilesDir(null), "logs")
+        val src = mapFor(dir, vinKey) ?: return null
+        val m = JSONObject(src.readText())
+        val blocks = m.optJSONArray("blocks")
+        val blk = sortedSetOf<String>()
+        if (blocks != null) for (i in 0 until blocks.length()) {
+            blocks.optJSONObject(i)?.optString("name")?.takeIf { it.length >= 4 }
+                ?.let { blk.add(it.take(4).uppercase()) }
+        }
+        fun ids(key: String): List<String> {
+            val a = m.optJSONArray(key) ?: return emptyList()
+            return (0 until a.length()).map { a.optString(it) }.filter { it.isNotEmpty() }
+        }
+        // A NON-CAN CAR HAS NO BLOCKS AND IS STILL WORTH CONTRIBUTING -- requiring them
+        // would have excluded the Highlander, whose record is the richer one: Mode 22
+        // SILENT against 23 probes, 63 Mode-21 identifiers, 20 Mode-01 PIDs. What a record
+        // describes is what a vehicle ANSWERS, which on K-line is those lists.
+        val pids = ids("mode01"); val m21 = ids("mode21_ids")
+        if (blk.isEmpty() && pids.isEmpty() && m21.isEmpty()) return null
+        val hdrSrc = m.optJSONArray("speaks_mode22") ?: m.optJSONArray("headers_targeted")
+        val hdr = sortedSetOf<String>()
+        if (hdrSrc != null) for (i in 0 until hdrSrc.length())
+            hdrSrc.optString(i).takeIf { it.isNotEmpty() }?.let { hdr.add(it) }
+
+        val make = info?.make ?: ""
+        val out = JSONObject()
+        // take(8), never more. This is the line the privacy claim rests on.
+        info?.vin?.takeIf { it.length >= 3 }?.let { out.put("vin_pattern", it.take(8).uppercase()) }
+        info?.year?.let { out.put("year", it) }
+        out.put("make", make)
+        out.put("model", model)
+        out.put("addressing", m.optString("addressing"))
+        out.put("protocol", m.optString("protocol"))
+        if (hdr.isNotEmpty()) out.put("headers", JSONArray(hdr.toList()))
+        if (blk.isNotEmpty()) out.put("blocks", JSONArray(blk.toList()))
+        if (pids.isNotEmpty()) out.put("pids", JSONArray(pids))
+        if (m21.isNotEmpty()) out.put("mode21_ids", JSONArray(m21))
+        // The Mode-22 verdict is the most valuable single field a K-line car produces: it
+        // is why a future scan need not spend the sweep finding the same silence. Recorded
+        // as evidence, NOT as permission to skip -- see VehicleId.hintsFor on why observed
+        // locations reorder a scan and never restrict it.
+        m.optString("mode22_verdict").takeIf { it.isNotEmpty() }?.let { out.put("mode22", it) }
+        m.optString("mode22_evidence").takeIf { it.isNotEmpty() }
+            ?.let { out.put("mode22_evidence", it) }
+        out.put("source", "obd-discover")
+        // Say what still needs a human. An aborted run's block list is real but partial,
+        // and a record that claims to map a car it only half-swept is worse than none.
+        val notes = ArrayList<String>()
+        if (model.isEmpty()) notes.add("model not resolved — fill this in before opening a pull request")
+        if (m.optBoolean("aborted")) notes.add("run was stopped early; block list is partial")
+        if (notes.isNotEmpty()) out.put("notes", notes.joinToString("; "))
+
+        val name = "${make.ifEmpty { "vehicle" }}-${model.ifEmpty { "MODEL" }}"
+            .replace(Regex("[^A-Za-z0-9-]"), "-")
+        val f = File(dir, "$name.json")
+        f.writeText(out.toString(2) + "\n")
+        return Bundle(f, listOf(f.name), scrubbed = true)
+    }
+
+    fun share(ctx: Context, zip: File, mime: String = "application/zip") {
         val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", zip)
         val i = Intent(Intent.ACTION_SEND).apply {
-            type = "application/zip"
+            type = mime
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, zip.name)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

@@ -1,5 +1,8 @@
 package com.redundo.obddiscover
 
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -387,4 +390,152 @@ class ReplyShapeTest {
     }
 
     private fun String.toHex() = toByteArray().joinToString("") { "%02X".format(it) }
+}
+
+/**
+ * The WMI table used to be built by substring-matching vPIC manufacturer names against
+ * OBDb make names, which silently produced makes out of unrelated companies: PYRAMID
+ * (a trailer builder) became "Ram", LANDMARK became "Land", HUDSON BROTHERS became "DS",
+ * and HYUNDAI STEEL INDUSTRIES became "Hyundai". 31 of 492 entries were vehicles that
+ * cannot be scanned at all. These pin the shape so a regenerated table cannot regress.
+ */
+class WmiTableTest {
+    private fun table() = org.json.JSONObject(
+        java.io.File("src/main/assets/wmi_to_make.json").readText())
+
+    @Test fun substringArtifactsAreGone() {
+        val t = table()
+        for (w in listOf("16R", "15V", "10H", "145", "1KB", "1RL", "40B", "3T1", "421")) {
+            assertFalse("$w is a trailer/motorcycle builder, not a car make", t.has(w))
+        }
+    }
+
+    @Test fun brandsResolveToThemselvesNotTheParent() {
+        val t = table()
+        // vPIC names the brand; the parent stays as a fallback because hints only reorder.
+        for ((w, brand) in listOf("19U" to "Acura", "1LN" to "Lincoln", "2T2" to "Lexus")) {
+            val a = t.optJSONArray(w)
+            assertNotNull("$w should carry a candidate list", a)
+            assertEquals("$w must lead with $brand", brand, a!!.optString(0))
+        }
+    }
+
+    @Test fun jointVenturePlantsListEveryMake() {
+        val t = table()
+        val n = t.optJSONArray("1N4")   // Nissan and Infiniti share the plant
+        assertNotNull(n); assertEquals("Nissan", n!!.optString(0))
+        assertTrue("1N4 must also offer INFINITI",
+            (0 until n.length()).map { n.optString(it) }.contains("INFINITI"))
+    }
+
+    @Test fun ordinaryEntriesStayPlainStrings() {
+        val t = table()
+        // Only the 53 that genuinely need a list pay for one.
+        val lists = t.keys().asSequence().count { t.opt(it) is org.json.JSONArray }
+        assertEquals(53, lists)
+        assertEquals("Ford", t.optString("1FT"))
+    }
+}
+
+/**
+ * The project's own vehicle database: vehicles/<Make>/<Model>.json, compiled by
+ * tools/merge_vehicles.py into one asset at build time.
+ *
+ * It exists because the public sources cannot supply this. Brute-forcing VIN prefixes
+ * against vPIC names a model for 31% of WMIs (measured, 14 of a random 45), and DecodeWMI
+ * is silent for JTM, WBA, KM8 and JF2 -- four of the six cars this project has captures
+ * for. A scan supplies the model AND the locations, from the car.
+ */
+class VehicleDbTest {
+    private fun asset() = org.json.JSONObject(
+        java.io.File("src/main/assets/vin_patterns.json").readText())
+
+    @Test fun mergeProducedTheAsset() {
+        val a = asset()
+        assertTrue("merge must emit both sections", a.has("patterns") && a.has("locations"))
+    }
+
+    @Test fun bmwCarriesTheBlocksTheCommunityListLacks() {
+        // 2258xx holds 227 identifiers on the F10 and 2244xx the oil row; neither is in
+        // OBDb's BMW list. Losing them is the exact regression this database prevents.
+        val blk = asset().getJSONObject("locations").getJSONObject("BMW|5 Series")
+            .getJSONArray("blk").let { a -> (0 until a.length()).map { a.getString(it) } }
+        for (b in listOf("2258", "2244", "2217", "224A")) {
+            assertTrue("BMW 5 Series must carry $b", b in blk)
+        }
+    }
+
+    @Test fun noRecordCarriesMoreThanEightVinCharacters() {
+        // Positions 9-17 include the serial. The merge refuses to write when one does,
+        // so reaching here with a longer key would mean the guard was removed.
+        val p = asset().getJSONObject("patterns")
+        for (k in p.keys()) assertTrue("$k is longer than VIN positions 1-8", k.length <= 8)
+    }
+
+    @Test fun everyRecordFileIsValidAndSafe() {
+        val dir = java.io.File("../vehicles")
+        val files = dir.walkTopDown().filter { it.extension == "json" }.toList()
+        assertTrue("expected seeded records", files.isNotEmpty())
+        for (f in files) {
+            val r = org.json.JSONObject(f.readText())
+            assertTrue("${f.name} needs a make", r.optString("make").isNotEmpty())
+            assertTrue("${f.name} must not carry a VIN", !r.has("vin") && !r.has("vin_key"))
+            assertTrue("${f.name} must not carry payloads",
+                !r.has("mode09") && !r.has("mode21"))
+            assertTrue("${f.name} pattern too long", r.optString("vin_pattern").length <= 8)
+        }
+    }
+}
+
+/**
+ * The contribute export, pinned at the schema it writes.
+ *
+ * The first version of it required `blocks` and so could not contribute a K-line car at
+ * all -- it would have silently excluded the Highlander, whose record is the richer one.
+ */
+class ContributeSchemaTest {
+    private fun records() = java.io.File("../vehicles").walkTopDown()
+        .filter { it.extension == "json" }.map { it to org.json.JSONObject(it.readText()) }
+
+    @Test fun aNonCanCarIsRepresentable() {
+        val (_, h) = records().first { it.second.optString("model") == "Highlander" }
+        assertEquals("A3", h.optString("protocol"))
+        assertEquals("SILENT", h.optString("mode22"))
+        assertTrue("must carry Mode-01 PIDs", h.getJSONArray("pids").length() > 0)
+        assertTrue("must carry Mode-21 ids", h.getJSONArray("mode21_ids").length() > 0)
+        assertTrue("a K-line car has no CAN blocks", !h.has("blocks"))
+    }
+
+    @Test fun mode22SilenceIsEvidenceNotAnInstruction() {
+        // If this ever becomes a skip, the BMW regression returns: OBDb's list would have
+        // lost 358 of 462 identifiers on the F10.
+        val src = java.io.File("src/main/java/com/redundo/obddiscover/Export.kt").readText()
+        assertTrue("the intent must stay written down where the field is set",
+            src.contains("NOT as permission to skip"))
+    }
+
+    /**
+     * The README quotes the Highlander's record as the argument that K-line cars are not
+     * second-class. Numbers in a README rot silently; this makes them fail loudly.
+     */
+    @Test fun theReadmeNumbersForTheHighlanderAreTrue() {
+        // Collapsed, because the README hard-wraps and a number can land on the line
+        // before the noun it counts.
+        val readme = java.io.File("../README.md").readText().replace(Regex("\\s+"), " ")
+        val h = org.json.JSONObject(java.io.File("src/main/assets/vin_patterns.json").readText())
+            .getJSONObject("locations").getJSONObject("Toyota|Highlander")
+        val m21 = h.getJSONArray("m21").length()
+        val pid = h.getJSONArray("pid").length()
+        assertTrue("README says $m21 Mode-21 identifiers?",
+            readme.contains("$m21 Mode-21 identifiers"))
+        assertTrue("README says $pid Mode-01 PIDs?", readme.contains("$pid Mode-01 PIDs"))
+        assertEquals("and that Mode 22 answers nothing", "SILENT", h.optString("m22"))
+    }
+
+    @Test fun everyRecordIsWithinTheVinPatternLimit() {
+        for ((f, r) in records()) {
+            assertTrue("${f.name}: positions 9-17 include the serial",
+                r.optString("vin_pattern").length <= 8)
+        }
+    }
 }

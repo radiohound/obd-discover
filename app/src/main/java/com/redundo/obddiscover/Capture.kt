@@ -329,17 +329,19 @@ class CaptureRunner(
             // What the bundled tables know about this make, before any probing. Purely
             // informational here -- the scan still sweeps blind for what is not listed.
             val mk = info?.make ?: ""
+            // Other makes this plant builds for. Extends the hint tail, never the head.
+            val sib = info?.vin?.let { VehicleId.siblings(it) } ?: emptyList()
             // Looked up once: the screen reports this count and phase 0 sends exactly these.
             // Computing it twice invited the two to disagree.
             val knownReqs = if (mk.isEmpty()) emptyList() else VehicleId.supportedFor(mk)
             hintNote = if (mk.isEmpty()) "" else {
-                val blocks = VehicleId.blockPrefixes(mk)
-                val hdrs = VehicleId.headers(mk)
+                val blocks = VehicleId.blockPrefixes(mk, also = sib)
+                val hdrs = VehicleId.headers(mk, also = sib)
                 // This used to read "which this tool cannot send", which stopped being true
                 // when the Mode-21 sweep landed. A stale capability claim on the identity
                 // card is worse than no claim: it tells the operator not to expect data the
                 // scan is about to go and get.
-                val m21 = if (!VehicleId.usesMode21(mk)) "" else when {
+                val m21 = if (!VehicleId.usesMode21(mk, sib)) "" else when {
                     Mode21.appliesTo(protocol) -> "  (also uses Mode 21, which this scan sweeps)"
                     Mode21.appliesToIso(protocol) ->
                         "  (also uses Mode 21 — sweeping it here is the opt-in below)"
@@ -348,7 +350,7 @@ class CaptureRunner(
                 // Header counts are a CAN fact. On K-line there is no 11-bit id to be
                 // usable or unreachable, so quoting "6 usable headers, 6F1 unreachable" at
                 // someone looking at an ISO 9141-2 car describes a bus they are not on.
-                val oor = if (!canBus) emptyList() else VehicleId.unaddressable(mk)
+                val oor = if (!canBus) emptyList() else VehicleId.unaddressable(mk, sib)
                 val oorNote = if (oor.isEmpty()) "" else
                     "  ${oor.size} documented header(s) unreachable by this app: " +
                     oor.joinToString(", ") { "${it.first} — ${it.second}" }
@@ -448,7 +450,7 @@ class CaptureRunner(
                 val m22Probes = Mode22.BASE_PROBES +
                     // Bottom-anchored: measured on a BMW, a Subaru and a Ford, every
                     // populated block has a hit within its first three offsets.
-                    VehicleId.blockPrefixes(mk).flatMap { b ->
+                    VehicleId.blockPrefixes(mk, also = sib).flatMap { b ->
                         listOf("22%02X00".format(b), "22%02X01".format(b))
                     }
                 val m22 = Mode22.probe(m22Probes) { req ->
@@ -640,11 +642,11 @@ class CaptureRunner(
                 // true before there is anything to measure.
                 detail = "stay parked, engine warm — this usually takes 15–20 minutes"
                 phase = CapPhase.DISCOVER
-                discover.hintedBlocks = if (mk.isEmpty()) emptyList() else VehicleId.blockPrefixes(mk)
-                discover.hintedHeaders = if (mk.isEmpty()) emptyList() else VehicleId.headers(mk)
-                discover.hinted29 = if (mk.isEmpty()) emptyList() else VehicleId.headers29(mk)
+                discover.hintedBlocks = if (mk.isEmpty()) emptyList() else VehicleId.blockPrefixes(mk, also = sib)
+                discover.hintedHeaders = if (mk.isEmpty()) emptyList() else VehicleId.headers(mk, also = sib)
+                discover.hinted29 = if (mk.isEmpty()) emptyList() else VehicleId.headers29(mk, also = sib)
                 discover.hintedExt = mk.isNotEmpty() &&
-                    VehicleId.unaddressable(mk).any { it.first == "6F1" }
+                    VehicleId.unaddressable(mk, sib).any { it.first == "6F1" }
                 discover.wmiIn = wmi
                 discover.vinKeyIn = vinKey
 
@@ -666,7 +668,7 @@ class CaptureRunner(
                 // learn what 181 already established.
                 discover.hintedPairs =
                     if (mk.isEmpty() || knownReqs.isNotEmpty()) emptyList()
-                    else VehicleId.hintedPairs(mk)
+                    else VehicleId.hintedPairs(mk, also = sib)
                 discover.start {
                     val plan = discover.logPlan
                     // A stopped run does not roll on into a drive. The callback fires either

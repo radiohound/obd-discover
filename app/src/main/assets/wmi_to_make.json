@@ -1,13 +1,12 @@
 {
-"10H": "DS",
-"11Z": "DS",
-"12H": "Holden",
-"145": "Hyundai",
-"15V": "Land",
-"16M": "MG",
-"16R": "Ram",
-"19U": "Honda",
-"19V": "Honda",
+"19U": [
+"Acura",
+"Honda"
+],
+"19V": [
+"Acura",
+"Honda"
+],
 "19X": "Honda",
 "1B3": "Dodge",
 "1F1": "Ford",
@@ -30,29 +29,39 @@
 "1GN": "Chevrolet",
 "1GT": "GMC",
 "1GY": "Cadillac",
-"1HD": "DS",
 "1HF": "Honda",
 "1HG": "Honda",
 "1J4": "Jeep",
 "1J8": "Jeep",
-"1KB": "Ram",
-"1L1": "Ford",
-"1L3": "Land",
-"1LH": "Land",
-"1LJ": "Ford",
-"1LN": "Ford",
+"1L1": [
+"Lincoln",
+"Ford"
+],
+"1LJ": [
+"Lincoln",
+"Ford"
+],
+"1LN": [
+"Lincoln",
+"Ford"
+],
 "1MB": "Mercedes",
 "1ME": "Ford",
 "1MH": "Ford",
-"1MR": "Ford",
-"1N4": "Nissan",
-"1N6": "Nissan",
-"1RL": "Ram",
-"1S7": "Land",
-"1UF": "DS",
+"1MR": [
+"Lincoln",
+"Ford"
+],
+"1N4": [
+"Nissan",
+"INFINITI"
+],
+"1N6": [
+"Nissan",
+"INFINITI"
+],
 "1V1": "Volkswagen",
 "1V2": "Volkswagen",
-"1VH": "Chrysler",
 "1VW": "Volkswagen",
 "1WA": "Volvo",
 "1WB": "Volvo",
@@ -60,8 +69,6 @@
 "1WU": "Volvo",
 "1WX": "Volvo",
 "1WY": "Volvo",
-"1ZJ": "Land",
-"2B1": "Chrysler",
 "2B3": "Dodge",
 "2BA": "Chrysler",
 "2FA": "Ford",
@@ -75,26 +82,51 @@
 "2GC": "Chevrolet",
 "2GN": "Chevrolet",
 "2HG": "Honda",
-"2HH": "Honda",
+"2HH": [
+"Acura",
+"Honda"
+],
 "2HJ": "Honda",
 "2HK": "Honda",
-"2HN": "Honda",
-"2HU": "Honda",
-"2L1": "Ford",
-"2LJ": "Ford",
-"2LM": "Ford",
-"2LN": "Ford",
+"2HN": [
+"Acura",
+"Honda"
+],
+"2HU": [
+"Acura",
+"Honda"
+],
+"2L1": [
+"Lincoln",
+"Ford"
+],
+"2LJ": [
+"Lincoln",
+"Ford"
+],
+"2LM": [
+"Lincoln",
+"Ford"
+],
+"2LN": [
+"Lincoln",
+"Ford"
+],
 "2ME": "Ford",
 "2MH": "Ford",
 "2MR": "Ford",
-"2PC": "Volvo",
 "2S2": "Suzuki",
 "2S3": "Suzuki",
-"2SF": "Land",
 "2T1": "Toyota",
-"2T2": "Toyota",
+"2T2": [
+"Lexus",
+"Toyota"
+],
 "2T3": "Toyota",
-"2V8": "Chrysler",
+"2V8": [
+"Volkswagen",
+"Chrysler"
+],
 "2XM": "Chrysler",
 "3A2": "Chrysler",
 "3A3": "Chrysler",
@@ -102,32 +134,102 @@
 "3A6": "Chrysler",
 "3A7": "Chrysler",
 "3A8": "Chrysler",
-"3B2": "Chrysler",
-"3B3": "Chrysler",
-"3B4": "Chrysler",
-"3B5": "Chrysler",
-"3B6": "Chrysler",
-"3B7": "Chrysler",
-"3B8": "Chrysler",
+"3B2": [
+"Dodge",
+"Chrysler"
+],
+"3B3": [
+"Chrysler",
+"Dodge"
+],
+"3B4": [
+"Dodge",
+"Chrysler"
+],
+"3B5": [
+"Dodge",
+"Chrysler"
+],
+"3B6": [
+"Dodge",
+"Chrysler"
+],
+"3B7": [
+"Dodge",
+"Chrysler"
+],
+"3B8": [
+"Dodge",
+"Chrysler"
+],
 "3C2": "Chrysler",
-"3C3": "Chrysler",
-"3C4": "Chrysler",
-"3C6": "Chrysler",
-"3C7": "Chrysler",
+"3C3": [
+"Chrysler",
+"Dodge",
+"Fiat"
+],
+"3C4": [
+"Chrysler",
+"Dodge",
+"Volkswagen",
+"Jeep",
+"Fiat",
+"Ram"
+],
+"3C6": [
+"Chrysler",
+"Dodge",
+"Volkswagen",
+"Jeep",
+"Fiat",
+"Ram"
+],
+"3C7": [
+"Chrysler",
+"Dodge",
+"Volkswagen",
+"Jeep",
+"Fiat",
+"Ram"
+],
 "3C8": "Chrysler",
 "3CA": "Chrysler",
 "3CE": "Volvo",
 "3CZ": "Honda",
-"3D2": "Chrysler",
-"3D3": "Chrysler",
-"3D4": "Chrysler",
-"3D5": "Chrysler",
-"3D6": "Chrysler",
-"3D7": "Chrysler",
-"3D8": "Chrysler",
+"3D2": [
+"Dodge",
+"Chrysler"
+],
+"3D3": [
+"Dodge",
+"Chrysler"
+],
+"3D4": [
+"Dodge",
+"Chrysler"
+],
+"3D5": [
+"Dodge",
+"Chrysler"
+],
+"3D6": [
+"Dodge",
+"Chrysler"
+],
+"3D7": [
+"Dodge",
+"Chrysler"
+],
+"3D8": [
+"Dodge",
+"Chrysler"
+],
 "3DH": "Honda",
 "3E3": "Chrysler",
-"3E4": "Chrysler",
+"3E4": [
+"Fiat",
+"Chrysler"
+],
 "3F6": "Chrysler",
 "3FA": "Ford",
 "3FB": "Ford",
@@ -141,34 +243,64 @@
 "3GN": "Chevrolet",
 "3GT": "GMC",
 "3H1": "Honda",
-"3H3": "Hyundai",
-"3HD": "Honda",
+"3HD": [
+"Honda",
+"Acura"
+],
 "3HG": "Honda",
-"3J4": "Chrysler",
-"3J5": "Chrysler",
-"3J6": "Chrysler",
-"3KM": "Kia",
-"3KP": "Kia",
-"3LN": "Ford",
+"3J4": [
+"Jeep",
+"Chrysler"
+],
+"3J5": [
+"Jeep",
+"Chrysler"
+],
+"3J6": [
+"Jeep",
+"Chrysler"
+],
+"3KM": [
+"Kia",
+"Hyundai"
+],
+"3KP": [
+"Kia",
+"Hyundai"
+],
+"3LN": [
+"Lincoln",
+"Ford"
+],
 "3MA": "Ford",
 "3MD": "Mazda",
 "3ME": "Ford",
 "3MF": "BMW",
 "3MV": "Mazda",
 "3MW": "BMW",
-"3MY": "Mazda",
+"3MY": [
+"Toyota",
+"Mazda"
+],
 "3MZ": "Mazda",
-"3N1": "Nissan",
-"3N6": "Nissan",
+"3N1": [
+"Nissan",
+"INFINITI"
+],
+"3N6": [
+"Nissan",
+"Chevrolet",
+"INFINITI"
+],
 "3N8": "Nissan",
 "3P3": "Chrysler",
 "3P4": "Chrysler",
-"3P5": "Chrysler",
 "3P6": "Chrysler",
 "3P7": "Chrysler",
-"3PC": "Nissan",
-"3T1": "MINI",
-"3TH": "Land",
+"3PC": [
+"Nissan",
+"INFINITI"
+],
 "3TM": "Toyota",
 "3TY": "Toyota",
 "3V4": "Volvo",
@@ -177,32 +309,42 @@
 "3VW": "Volkswagen",
 "3X1": "Volvo",
 "3X2": "Volvo",
-"40B": "Ram",
-"421": "MINI",
-"455": "Land",
 "478": "Honda",
-"47T": "DS",
-"4BA": "MG",
 "4CR": "DS",
-"4EU": "DS",
-"4F2": "Ford",
-"4F3": "Ford",
-"4F4": "Ford",
+"4F2": [
+"Mazda",
+"Ford"
+],
+"4F3": [
+"Mazda",
+"Ford"
+],
+"4F4": [
+"Mazda",
+"Ford"
+],
 "4JG": "Mercedes",
 "4M2": "Ford",
 "4M3": "Ford",
 "4M4": "Ford",
-"4N2": "Ford",
-"4N3": "Ford",
-"4N4": "Ford",
+"4N2": [
+"Nissan",
+"Ford"
+],
+"4N3": [
+"Nissan",
+"Ford"
+],
+"4N4": [
+"Nissan",
+"Ford"
+],
 "4S3": "Subaru",
 "4S4": "Subaru",
 "4T1": "Toyota",
 "4T3": "Toyota",
 "4T4": "Toyota",
 "4US": "BMW",
-"4UV": "Land",
-"4V0": "DS",
 "4V1": "Volvo",
 "4V2": "Volvo",
 "4V3": "Volvo",
