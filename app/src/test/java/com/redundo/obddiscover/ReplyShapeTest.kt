@@ -563,6 +563,22 @@ class ModelNameTest {
         }
     }
 
+    /**
+     * The README names a button the user has to find. If the label moves and the README
+     * does not, the instructions send someone hunting for a button that is not there.
+     */
+    @Test fun theReadmeNamesTheButtonThatActuallyExists() {
+        val ui = java.io.File("src/main/java/com/redundo/obddiscover/MainActivity.kt").readText()
+        val label = Regex("""Text\("(ADD VEHICLE|CONTRIBUTE)"\)""").find(ui)?.groupValues?.get(1)
+        assertNotNull("the add-a-vehicle button must exist", label)
+        for (f in listOf("../README.md", "../vehicles/README.md")) {
+            assertTrue("${f} must name the button \"$label\"",
+                java.io.File(f).readText().contains(label!!))
+        }
+        // "CONTRIBUTE" on a phone screen reads as a request for money.
+        assertEquals("ADD VEHICLE", label)
+    }
+
     @Test fun theBareModelIsWhatReachesTheRecord() {
         // Capture keeps both; only the bare one may be handed to contribute().
         val ui = java.io.File("src/main/java/com/redundo/obddiscover/MainActivity.kt").readText()

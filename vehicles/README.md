@@ -73,9 +73,9 @@ answered, never what they returned.
 
 ## Adding your car
 
-1. Scan it with the app, then tap **CONTRIBUTE** (the blue button).
-2. Drop the file in `vehicles/<Make>/`.
-3. Open a pull request.
+1. Scan it with the app, then tap **ADD VEHICLE** (the blue button).
+2. It opens a **draft** issue with the record filled in. Read it and tap Submit —
+   nothing is posted until you do.
 
 One vehicle per file, so two contributors never touch the same file and pull requests
 never conflict.

@@ -245,8 +245,12 @@ class MainActivity : ComponentActivity() {
                     ) { Text("EXPORT RAW") }
                     // A THIRD COLOUR, because this is a third thing. Green is safe to send
                     // anywhere, orange identifies the car, and this one is meant to be
-                    // published -- to a public pull request, by someone who should be able
-                    // to see at a glance that it is not either of the other two.
+                    // published, by someone who should be able to see at a glance that it
+                    // is not either of the other two.
+                    //
+                    // NOT LABELLED "CONTRIBUTE". On a phone screen, next to buttons, that
+                    // reads as a request for money to anyone who does not already speak
+                    // open-source. "ADD VEHICLE" says what it does and matches vehicles/.
                     Button(
                         enabled = !cap.running,
                         colors = ButtonDefaults.buttonColors(
@@ -273,7 +277,7 @@ class MainActivity : ComponentActivity() {
                                     cap.info?.year))
                             }
                         },
-                    ) { Text("CONTRIBUTE") }
+                    ) { Text("ADD VEHICLE") }
                 }
                 // Always available, unlike the capture exports, which need a capture. The
                 // case this serves is the adapter that will not connect or the car that

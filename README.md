@@ -191,7 +191,7 @@ manufacturer, not a car) and the first 4 bytes of a SHA-256 of the VIN, used onl
 vehicle the app has mapped before. The scrubbed export drops even that hash, because someone
 holding a candidate VIN could hash it and test for a match.
 
-**CONTRIBUTE writes VIN positions 1–8** — five characters more than a capture file, and the
+**ADD VEHICLE writes VIN positions 1–8** — five characters more than a capture file, and the
 only place the app emits more than the WMI. Those are WMI plus VDS: model, body, engine and
 restraint, shared by millions of cars and published by vPIC itself as a *pattern*. Position 9
 is a check digit, 11 the plant, and **12–17 the serial**, and none of them are written.
@@ -268,7 +268,7 @@ scanning, not something this app wants; denying it stops the adapter being found
    green when there is enough.
 5. **EXPORT SCRUBBED** gives you a zip that is safe to attach to a public issue.
    **EXPORT RAW** keeps the VIN and is for your own records.
-   **CONTRIBUTE** writes one small JSON record for [`vehicles/`](vehicles/) — see below.
+   **ADD VEHICLE** submits one small JSON record to [`vehicles/`](vehicles/) — see below.
 
 **CONTROLS TEST** is the other half: you operate the air conditioning, lights, brakes
 and steering to a prompt while it logs. Fields with no relationship to speed or
@@ -281,8 +281,13 @@ BMW is the standing proof that what is written down is not enough: three of the 
 real Mode-22 blocks are absent from the community list, including one holding 227
 identifiers. A scan of your car fixes that for everyone who owns one.
 
-1. Scan the car, then tap **CONTRIBUTE** (the blue button).
-2. Put the file in `vehicles/<Make>/` and open a pull request.
+1. Scan the car, then tap **ADD VEHICLE** (the blue button).
+2. It opens a **draft** GitHub issue with the record already filled in. Read it, then
+   tap Submit. Nothing is posted until you do — the app fills the form and hands over,
+   because every record wants a human to look at it first.
+
+The record is also written to the app's `logs/` folder, so you can attach it by hand or
+open a pull request yourself instead.
 
 A record holds VIN positions 1–8, the model, and which identifiers answered — never the
 serial, never a payload. One file per vehicle, so two people adding two cars never touch the
