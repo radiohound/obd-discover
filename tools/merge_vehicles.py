@@ -66,7 +66,12 @@ def main(out_path):
         key = f"{make}|{model}" if model else make
         e = by_model[key]
         e["hdr"].update(hdr); e["blk"].update(blk)
-        e["pid"].update(x.upper() for x in (r.get("pids") or []) if x)
+        # A record writes pids as {pid: name} so a human reading the file on GitHub sees
+        # "engine coolant temperature" rather than "0105". The SHIPPED asset keeps the
+        # bare identifiers: the app already carries pid_standard.json and can name them
+        # itself, so shipping the strings too would be the same text twice.
+        pids = r.get("pids") or {}
+        e["pid"].update(x.upper() for x in (pids.keys() if isinstance(pids, dict) else pids) if x)
         e["m21"].update(x.upper() for x in (r.get("mode21_ids") or []) if x)
         if r.get("mode22"): e["m22"] = r["mode22"]
         # SIGNALS SHIP. Everything else added to a record recently -- vPIC body/engine

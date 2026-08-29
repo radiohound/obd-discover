@@ -434,7 +434,18 @@ object Export {
         out.put("protocol", m.optString("protocol"))
         if (hdr.isNotEmpty()) out.put("headers", JSONArray(hdr.toList()))
         if (blk.isNotEmpty()) out.put("blocks", JSONArray(blk.toList()))
-        if (pids.isNotEmpty()) out.put("pids", JSONArray(pids))
+        if (pids.isNotEmpty()) {
+            // {pid: name}, not a bare list. A record is read by a person on GitHub before
+            // it is read by anything else, and "0105" tells them nothing while "engine
+            // coolant temperature (degC)" tells them what the car answered. The names come
+            // from the standard table the app already carries, so this costs a lookup.
+            val named = JSONObject()
+            for (p in pids) {
+                val (n, u) = VehicleId.standardName(p)
+                named.put(p, if (n.isEmpty()) "" else if (u.isEmpty()) n else "$n ($u)")
+            }
+            out.put("pids", named)
+        }
         if (m21.isNotEmpty()) out.put("mode21_ids", JSONArray(m21))
         // The Mode-22 verdict is the most valuable single field a K-line car produces: it
         // is why a future scan need not spend the sweep finding the same silence. Recorded

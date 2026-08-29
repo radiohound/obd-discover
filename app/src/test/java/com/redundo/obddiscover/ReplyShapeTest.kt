@@ -501,7 +501,7 @@ class ContributeSchemaTest {
         val (_, h) = records().first { it.second.optString("model") == "Highlander" }
         assertEquals("A3", h.optString("protocol"))
         assertEquals("SILENT", h.optString("mode22"))
-        assertTrue("must carry Mode-01 PIDs", h.getJSONArray("pids").length() > 0)
+        assertTrue("must carry Mode-01 PIDs", h.getJSONObject("pids").length() > 0)
         assertTrue("must carry Mode-21 ids", h.getJSONArray("mode21_ids").length() > 0)
         assertTrue("a K-line car has no CAN blocks", !h.has("blocks"))
     }
@@ -612,6 +612,33 @@ class RecordRichnessTest {
             java.io.File("src/main/assets/vin_patterns.json").readText())
             .getJSONObject("locations").getJSONObject("BMW|5 Series").getJSONObject("sig")
         assertEquals("odometer", sig.getJSONObject("221700").getString("n"))
+    }
+
+    /**
+     * A record is read by a person on GitHub before anything else reads it, so the PIDs
+     * carry their standard names. Committing a bare ["0105"] means the file says nothing
+     * to a reader who does not already have the table open beside it.
+     */
+    @Test fun committedPidsCarryTheirNames() {
+        var seen = 0
+        for ((f, r) in records()) {
+            val pids = r.optJSONObject("pids") ?: continue
+            for (k in pids.keys()) {
+                assertTrue("${f.name}: $k has no name", pids.getString(k).isNotEmpty())
+                seen++
+            }
+        }
+        assertTrue("expected named PIDs in the database", seen > 100)
+    }
+
+    @Test fun theShippedAssetDoesNotRepeatTheNames() {
+        // The app carries pid_standard.json and can name them itself; shipping the strings
+        // again would be the same text twice in one APK.
+        val loc = org.json.JSONObject(
+            java.io.File("src/main/assets/vin_patterns.json").readText())
+            .getJSONObject("locations").getJSONObject("Subaru|Forester")
+        val pid = loc.getJSONArray("pid")
+        assertTrue("shipped pids stay bare identifiers", pid.getString(0).matches(Regex("[0-9A-F]{4}")))
     }
 
     @Test fun everyRecordCarriesItsVehicleAttributes() {

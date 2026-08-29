@@ -54,6 +54,11 @@ measured rather than summarising it in prose.
       "verified": "read against the dashboard, and again as +5 km over a 17-minute drive" }
   ],
 
+  "pids": {                                 // Mode-01, with the standard's own names
+    "0105": "engine coolant temperature (degC)",
+    "010C": "engine speed (rpm)"
+  },
+
   "detail":  [ ... ],                       // WHICH identifiers answered, per block
   "stats":   { "probes": 17441, "identifiers_found": 1929 },
   "mode21_mirrors_mode01": [ "2101", ... ], // Mode-21 ids that only repeat Mode 01
@@ -74,6 +79,14 @@ sentence, every later F10 scan can name it without repeating the work.
 against something real — a dashboard, a fuel receipt, a measured drive. Anything else is a
 guess and should say so, because a wrong name is worse than no name: it stops the next
 person looking.
+
+`pids` carries the names because a record is read by a person on GitHub before anything
+else reads it, and `"0105"` says nothing to a reader without the table open beside it. The
+shipped asset keeps the bare identifiers — the app already has `pid_standard.json` and can
+name them itself, so shipping the strings too would be the same text twice in one APK.
+
+Mode-21 identifiers stay bare. They are manufacturer-specific and there is no standard to
+name them from — which is what [`signals`](#signals-is-the-one-that-matters) is for.
 
 `notes` is for prose that is genuinely prose. If a fact has a shape, give it a field.
 

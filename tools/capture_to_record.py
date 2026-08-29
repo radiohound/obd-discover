@@ -12,6 +12,22 @@ community lists are not.
 """
 import json, sys, os
 
+_STD = None
+def _named(pids):
+    """{pid: standard name}, so the committed record reads without a lookup table."""
+    global _STD
+    if _STD is None:
+        import os
+        p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "app/src/main/assets/pid_standard.json")
+        _STD = json.load(open(p))["mode01"] if os.path.exists(p) else {}
+    out = {}
+    for x in sorted(pids):
+        e = _STD.get(x[2:])
+        out[x] = (f"{e['n']} ({e['u']})" if e and e.get("u") else (e["n"] if e else ""))
+    return out
+
+
 def record(mapfile, make=None, model="", pattern="", year=None):
     d = json.load(open(mapfile))
     hdrs = d.get("speaks_mode22") or d.get("headers_targeted") or []
@@ -23,7 +39,7 @@ def record(mapfile, make=None, model="", pattern="", year=None):
          "headers": [h for h in hdrs if h], "blocks": blocks,
          # A non-CAN car has no blocks; what it answers is these lists. Excluding them
          # would drop the Highlander, whose Mode-22 silence is a real finding.
-         "pids": d.get("mode01") or [], "mode21_ids": d.get("mode21_ids") or [],
+         "pids": _named(d.get("mode01") or []), "mode21_ids": d.get("mode21_ids") or [],
          "mode22": d.get("mode22_verdict", ""),
          "mode22_evidence": d.get("mode22_evidence", ""),
          "source": f"obd-discover capture {os.path.basename(mapfile)}"}
