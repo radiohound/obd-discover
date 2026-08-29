@@ -3,6 +3,15 @@
   "year": 2007,
   "make": "Ford",
   "model": "Ranger",
+  "vehicle": {
+    "body": "Pickup",
+    "drive": "4x2",
+    "cylinders": "4",
+    "displacement_l": "2.3",
+    "fuel": "Gasoline",
+    "gvwr": "Class 1C: 4,001 - 5,000 lb (1,814 - 2,268 kg)",
+    "doors": "2"
+  },
   "addressing": "11-bit",
   "headers": [
     "720",
@@ -27,6 +36,5 @@
     "22E3",
     "22E4"
   ],
-  "source": "obd-discover, 1 on-car capture(s) 2026-08",
-  "notes": "model confirmed from this capture's own VIN via vPIC (2007 Ranger, pickup)"
+  "source": "obd-discover, 1 on-car capture(s) 2026-08"
 }

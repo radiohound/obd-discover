@@ -28,7 +28,8 @@ def main(out_path):
     errors = 0
     by_pattern = {}
     by_model = collections.defaultdict(
-        lambda: {"hdr": set(), "blk": set(), "pid": set(), "m21": set(), "m22": ""})
+        lambda: {"hdr": set(), "blk": set(), "pid": set(), "m21": set(), "m22": "",
+                 "sig": {}})
     files = [os.path.join(d, f) for d, _, fs in os.walk(SRC)
              for f in fs if f.endswith(".json")]
     for p in sorted(files):
@@ -68,6 +69,21 @@ def main(out_path):
         e["pid"].update(x.upper() for x in (r.get("pids") or []) if x)
         e["m21"].update(x.upper() for x in (r.get("mode21_ids") or []) if x)
         if r.get("mode22"): e["m22"] = r["mode22"]
+        # SIGNALS SHIP. Everything else added to a record recently -- vPIC body/engine
+        # attributes, probe counts -- stays in the repo for humans, because the app cannot
+        # act on it. A named identifier is different: it lets a scan say "odometer, km"
+        # about a car nobody has scanned before, which is the one thing this project says
+        # it cannot do. Six fields per signal, a handful per vehicle.
+        for sg in (r.get("signals") or []):
+            did = (sg.get("did") or "").upper()
+            if not did or not sg.get("name"): continue
+            prev = e["sig"].get(did)
+            # Ground truth outranks a guess; otherwise first writer wins.
+            if prev and prev.get("c") == "ground-truth" and sg.get("confidence") != "ground-truth":
+                continue
+            e["sig"][did] = {k: v for k, v in
+                             (("n", sg.get("name")), ("u", sg.get("unit")),
+                              ("h", sg.get("header")), ("c", sg.get("confidence"))) if v}
 
     if errors:
         print(f"vehicles: {errors} problem(s); refusing to write {out_path}", file=sys.stderr)
@@ -76,13 +92,15 @@ def main(out_path):
            "locations": {k: {kk: vv for kk, vv in
                              (("hdr", sorted(v["hdr"])), ("blk", sorted(v["blk"])),
                               ("pid", sorted(v["pid"])), ("m21", sorted(v["m21"])),
-                              ("m22", v["m22"])) if vv}
+                              ("m22", v["m22"]), ("sig", v["sig"])) if vv}
                          for k, v in sorted(by_model.items())}}
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(out, f, separators=(",", ":"), sort_keys=True)
+    nsig = sum(len(v.get("sig", {})) for v in out["locations"].values())
     print(f"vehicles: {len(files)} record(s) -> {len(out['patterns'])} VIN patterns, "
-          f"{len(out['locations'])} model location sets, {os.path.getsize(out_path)} bytes")
+          f"{len(out['locations'])} model location sets, {nsig} named signal(s), "
+          f"{os.path.getsize(out_path)} bytes")
     return 0
 
 if __name__ == "__main__":

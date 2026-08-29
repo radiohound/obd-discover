@@ -586,3 +586,48 @@ class ModelNameTest {
             ui.contains("cap.modelClean, cap.vinKey"))
     }
 }
+
+/**
+ * Facts with a shape belong in fields, not in `notes`.
+ *
+ * The odometer on a BMW F10 -- 221700, kilometres, checked against a dashboard -- is the
+ * first identifier this project ever named against ground truth, and it spent its first
+ * day as a clause in a prose string where nothing could read it.
+ */
+class RecordRichnessTest {
+    private fun records() = java.io.File("../vehicles").walkTopDown()
+        .filter { it.extension == "json" }.map { it to org.json.JSONObject(it.readText()) }
+
+    @Test fun theVerifiedOdometerIsAField() {
+        val (_, bmw) = records().first { it.second.optString("model") == "5 Series" }
+        val sig = bmw.getJSONArray("signals").getJSONObject(0)
+        assertEquals("221700", sig.getString("did"))
+        assertEquals("odometer", sig.getString("name"))
+        assertEquals("km", sig.getString("unit"))
+        assertEquals("ground-truth", sig.getString("confidence"))
+    }
+
+    @Test fun namedSignalsReachTheShippedAsset() {
+        val sig = org.json.JSONObject(
+            java.io.File("src/main/assets/vin_patterns.json").readText())
+            .getJSONObject("locations").getJSONObject("BMW|5 Series").getJSONObject("sig")
+        assertEquals("odometer", sig.getJSONObject("221700").getString("n"))
+    }
+
+    @Test fun everyRecordCarriesItsVehicleAttributes() {
+        for ((f, r) in records()) {
+            assertTrue("${f.name} should carry vPIC attributes", r.has("vehicle"))
+        }
+    }
+
+    @Test fun confidenceIsAlwaysStated() {
+        // An unlabelled name reads as fact. Every signal must say how sure it is.
+        for ((f, r) in records()) {
+            val sigs = r.optJSONArray("signals") ?: continue
+            for (i in 0 until sigs.length()) {
+                val c = sigs.getJSONObject(i).optString("confidence")
+                assertTrue("${f.name}: signal $i has no confidence", c.isNotEmpty())
+            }
+        }
+    }
+}

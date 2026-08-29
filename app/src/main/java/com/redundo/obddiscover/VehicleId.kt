@@ -234,6 +234,38 @@ object VehicleId {
         return null
     }
 
+    /** A DID somebody identified on a real car: what it is, and how sure they were. */
+    data class Signal(val did: String, val name: String, val unit: String,
+                      val header: String, val confidence: String)
+
+    /**
+     * Identifiers NAMED on a real car of this make and model.
+     *
+     * The README says naming is the limit this app cannot pass: it finds which identifiers
+     * answer, not what they mean. That is true of a single scan and it does not have to
+     * stay true of the project. One owner verifies 221700 against a dashboard, and every
+     * later F10 scan can say "odometer, km" without repeating the work.
+     *
+     * Deliberately narrow. A name here means somebody watched a number move against
+     * something real, and `confidence` says which -- "ground-truth" is the dashboard, and
+     * anything weaker should read as a guess and be shown as one.
+     */
+    fun contributedSignals(make: String, model: String = ""): List<Signal> {
+        val loc = contributed?.optJSONObject("locations") ?: return emptyList()
+        val out = ArrayList<Signal>()
+        for (k in loc.keys()) {
+            if (k.substringBefore('|') != make) continue
+            if (model.isNotEmpty() && k.contains('|') && k.substringAfter('|') != model) continue
+            val sig = loc.optJSONObject(k)?.optJSONObject("sig") ?: continue
+            for (did in sig.keys()) {
+                val e = sig.optJSONObject(did) ?: continue
+                out.add(Signal(did, e.optString("n"), e.optString("u"),
+                               e.optString("h"), e.optString("c")))
+            }
+        }
+        return out.sortedBy { it.did }
+    }
+
     /**
      * Locations measured on a real car of this make (and model, when known).
      *

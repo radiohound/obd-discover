@@ -3,6 +3,14 @@
   "year": 2013,
   "make": "BMW",
   "model": "5 Series",
+  "vehicle": {
+    "body": "Sedan/Saloon",
+    "cylinders": "6",
+    "displacement_l": "3.0",
+    "fuel": "Gasoline",
+    "gvwr": "Class 1: 6,000 lb or less (2,722 kg or less)",
+    "doors": "4"
+  },
   "addressing": "11-bit",
   "headers": [
     "7DF",
@@ -27,6 +35,16 @@
     "2258",
     "2259"
   ],
+  "signals": [
+    {
+      "did": "221700",
+      "header": "7DF",
+      "name": "odometer",
+      "unit": "km",
+      "verified": "read against the dashboard one minute into a running log (142,934 mi), and again as +5 km over a 17-minute drive",
+      "confidence": "ground-truth"
+    }
+  ],
   "source": "obd-discover, 4 on-car capture(s) 2026-08",
-  "notes": "535i (F10), model confirmed from this capture's own VIN via vPIC. 2217xx holds the odometer in kilometres, verified against the dash and over a 17-minute drive. 2258xx and 224Axx are absent from the community list entirely."
+  "notes": "535i (F10). 2258xx and 224Axx are absent from the community list entirely."
 }

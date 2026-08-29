@@ -3,8 +3,17 @@
   "year": 2015,
   "make": "Subaru",
   "model": "Forester",
+  "vehicle": {
+    "body": "Sport Utility Vehicle [SUV]/Multipurpose Vehicle [MPV]",
+    "cylinders": "4",
+    "displacement_l": "2.5",
+    "fuel": "Gasoline",
+    "trim": "Limited+Moonroof+NAVI(H/K-Harman Kardon)+EyeSight",
+    "gvwr": "Class 1C: 4,001 - 5,000 lb (1,814 - 2,268 kg)",
+    "doors": "4",
+    "engine_model": "2.5NA U5"
+  },
   "addressing": "11-bit",
-  "protocol": "",
   "headers": [
     "7A2",
     "7DF",
@@ -22,5 +31,6 @@
     "2230",
     "22F1"
   ],
-  "source": "obd-discover, CONTRIBUTE on-car 2026-08-28 (+ earlier captures)"
+  "source": "obd-discover, CONTRIBUTE on-car 2026-08-28 (+ earlier captures)",
+  "notes": "7A2 answered on one run; it is documented by OBDb but outside the app's default sweep."
 }

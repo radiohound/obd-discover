@@ -37,6 +37,46 @@ A single scan from this app supplies all of it at once, from the car itself.
 `blocks` are 256-identifier ranges, not individual DIDs. A Silverado answering 1,929 DIDs
 is 40 blocks, and blocks are what the scanner actually consumes to reorder a run.
 
+## What else a record can hold
+
+The shipped asset stays small — patterns, locations, and named signals. Everything below
+is repo-side, read by people rather than by the app, so a record should carry what was
+measured rather than summarising it in prose.
+
+```json
+{
+  "vehicle": { "body": "Sedan/Saloon", "cylinders": "6", "displacement_l": "3.0",
+               "fuel": "Gasoline", "doors": "4" },
+
+  "signals": [                              // identifiers somebody NAMED, and how
+    { "did": "221700", "header": "7DF", "name": "odometer", "unit": "km",
+      "confidence": "ground-truth",
+      "verified": "read against the dashboard, and again as +5 km over a 17-minute drive" }
+  ],
+
+  "detail":  [ ... ],                       // WHICH identifiers answered, per block
+  "stats":   { "probes": 17441, "identifiers_found": 1929 },
+  "mode21_mirrors_mode01": [ "2101", ... ], // Mode-21 ids that only repeat Mode 01
+  "mode09_bitmap": "01FC000000",
+  "mode21_claimed_no_reply": [ ... ]        // claimed by the bitmap, never answered
+}
+```
+
+### signals is the one that matters
+
+The README says naming is the limit this app cannot pass — it finds which identifiers
+answer, not what they mean. That is true of one scan and it does not have to stay true of
+the project. `221700` on a BMW F10 is the odometer in kilometres, confirmed against a
+dashboard reading and then against a 17-minute drive. Because that is a field and not a
+sentence, every later F10 scan can name it without repeating the work.
+
+**`confidence` is not decoration.** Use `ground-truth` only when a number was watched
+against something real — a dashboard, a fuel receipt, a measured drive. Anything else is a
+guess and should say so, because a wrong name is worse than no name: it stops the next
+person looking.
+
+`notes` is for prose that is genuinely prose. If a fact has a shape, give it a field.
+
 ## Cars that are not CAN
 
 A K-line car has no headers and no blocks, and is still worth contributing — the

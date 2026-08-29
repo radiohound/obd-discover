@@ -4,6 +4,17 @@
   "make": "Toyota",
   "model": "Highlander",
   "series": "MCU23L/MCU28L/ACU20L/ACU25L",
+  "vehicle": {
+    "body": "Sport Utility Vehicle [SUV]/Multipurpose Vehicle [MPV]",
+    "drive": "4WD/4-Wheel Drive/4x4",
+    "cylinders": "6",
+    "displacement_l": "3.3",
+    "fuel": "Gasoline",
+    "trim": "STD",
+    "gvwr": "Class 1D: 5,001 - 6,000 lb (2,268 - 2,722 kg)",
+    "doors": "5",
+    "engine_model": "3MZ-FE"
+  },
   "addressing": "none \u2014 A3 is not CAN",
   "protocol": "A3",
   "pids": [
@@ -95,6 +106,9 @@
   ],
   "mode22": "SILENT",
   "mode22_evidence": "no reply to any of 23 probes",
+  "stats": {
+    "mode21_mirrors_mode01": 20
+  },
   "source": "obd-discover, ADD VEHICLE on-car 2026-08-28 (+ earlier captures)",
-  "notes": "K-line (ISO 9141-2). Mode 22 answered nothing; this ECU sent no negative response codes at all across the run. Recorded as evidence, not as licence to skip Mode 22 on another Highlander."
+  "notes": "K-line (ISO 9141-2). Mode 22 answered nothing and this ECU sent no negative response codes at all across the run. Recorded as evidence, not as licence to skip Mode 22 on another Highlander."
 }

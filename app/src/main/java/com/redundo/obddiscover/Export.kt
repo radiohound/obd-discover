@@ -443,6 +443,20 @@ object Export {
         m.optString("mode22_verdict").takeIf { it.isNotEmpty() }?.let { out.put("mode22", it) }
         m.optString("mode22_evidence").takeIf { it.isNotEmpty() }
             ?.let { out.put("mode22_evidence", it) }
+        // Everything the capture knows and the record can carry. These are repo-side --
+        // the merge ships only patterns, locations and named signals -- so being generous
+        // here costs nothing in the APK and keeps a contribution from throwing away what
+        // was measured. `detail` in particular holds WHICH identifiers answered, where
+        // `blocks` holds only the 256-wide ranges they fall in.
+        m.optJSONArray("detail")?.let { out.put("detail", it) }
+        m.optJSONArray("mode21_overlaps_mode01")?.let { out.put("mode21_mirrors_mode01", it) }
+        m.optString("mode09_bitmap").takeIf { it.isNotEmpty() }
+            ?.let { out.put("mode09_bitmap", it) }
+        m.optJSONArray("mode21_claim_refusals")?.let { out.put("mode21_claimed_no_reply", it) }
+        if (m.optInt("probes") > 0) {
+            out.put("stats", JSONObject().put("probes", m.optInt("probes"))
+                .put("blocks", blk.size))
+        }
         out.put("source", "obd-discover")
         // Say what still needs a human. An aborted run's block list is real but partial,
         // and a record that claims to map a car it only half-swept is worse than none.
