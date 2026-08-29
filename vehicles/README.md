@@ -90,6 +90,33 @@ name them from — which is what [`signals`](#signals-is-the-one-that-matters) i
 
 `notes` is for prose that is genuinely prose. If a fact has a shape, give it a field.
 
+## Folding a record in
+
+Use the tool, not an editor:
+
+```bash
+tools/add_record.py contributed.json --dry-run   # show what would change
+tools/add_record.py contributed.json             # fold it
+```
+
+**A contributed record describes one run, and a stopped run is partial.** The BMW's
+aborted sweep found 16 blocks where its record already held 17, so replacing a record with
+a newer one silently loses whatever the newer run did not reach. Every list is unioned and
+nothing may shrink — the script asserts it.
+
+It also refuses to merge two vehicles: if `vin_pattern`, `model` or `year` disagree, it
+stops rather than producing one record describing two cars. And a `ground-truth` signal is
+never displaced by a weaker claim.
+
+Folding a deliberately partial retest of the Silverado — 9 blocks of 40, one header of
+four — reports what the incoming run missed and keeps everything:
+
+    incoming blocks is missing 31 the record already has (partial run?) -- keeping both
+    blocks: 40 -> 40  (unchanged)
+    pids:    0 -> 2   (+2)
+
+which is the point: a short retest can only ADD.
+
 ## The full identifier list
 
 `blocks` are 256-wide ranges, so seventeen of them stand in for hundreds of real
