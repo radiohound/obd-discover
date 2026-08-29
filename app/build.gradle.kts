@@ -31,9 +31,25 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1"
+
+        // THE BUILD MARKER, DERIVED RATHER THAN TYPED.
+        //
+        // It used to be a hand-edited constant, and it did exactly what a hand-edited
+        // constant does: it went stale. A whole day of builds shipped announcing the
+        // commit before them, which made "did the new build install?" -- the only
+        // question this field exists to answer -- unanswerable, and answerable WRONGLY,
+        // which is worse than having no marker at all.
+        //
+        // Derived from the commit, so it cannot disagree with the code. Falls back to the
+        // version name where git is unavailable, e.g. a source download.
+        val tag = providers.exec {
+            commandLine("git", "log", "-1", "--format=%cd-%h", "--date=format:%Y-%m-%d")
+        }.standardOutput.asText.map { it.trim() }.orElse("").get()
+            .ifEmpty { "v$versionName" }
+        buildConfigField("String", "BUILD_TAG", "\"$tag\"")
     }
 
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
