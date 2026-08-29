@@ -1,6 +1,8 @@
 {
+  "vin_pattern": "1GC1KLE7",
   "make": "Chevrolet",
-  "model": "Silverado 2500HD",
+  "model": "Silverado HD",
+  "series": "2500",
   "addressing": "29-bit",
   "headers": [
     "DA11F1",
@@ -50,6 +52,6 @@
     "22FD",
     "22FE"
   ],
-  "source": "obd-discover, 2 on-car capture(s) 2026-08",
-  "notes": "MODEL UNVERIFIED \u2014 this capture carries no VIN, so the model name is an inference and not ground truth. Re-scan with CONTRIBUTE to confirm. 1,929 identifiers across 40 blocks."
+  "source": "obd-discover, 2 on-car captures 2026-08; VIN pattern read from the vehicle",
+  "notes": "1,929 identifiers across 40 blocks, 17,441 probes. Work Truck, 6.6L V8, 4WD crew cab. The VIN was NOT read during the scan -- the 29-bit VIN path was sending 7DF/7E0, which do not exist on that bus -- so the pattern was read off the vehicle afterwards and pairs with this capture on the owner's identification, not on a fingerprint in the map."
 }
