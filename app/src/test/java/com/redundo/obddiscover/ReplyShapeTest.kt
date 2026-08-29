@@ -63,7 +63,7 @@ class ReplyShapeTest {
      * the other reading: 0902 answers, so PID 02 is supported, and only FC000000 says so.
      */
     @Test fun bitmapSkipsTheCountByte() {
-        val pids = Mode09.probe { if (it == "0900") "01FC000000" else null }
+        val pids = Mode09.probe { if (it == "0900") listOf("01FC000000") else null }
         // 01/03/05 are message counts, 02 is the VIN and handled elsewhere.
         assertEquals(listOf(0x04, 0x06), pids.pids)
         assertEquals("01FC000000", pids.bitmap)
@@ -72,7 +72,7 @@ class ReplyShapeTest {
 
     /** A four-byte bitmap has no count byte to skip. */
     @Test fun bitmapWithoutCountByte() {
-        assertEquals(listOf(0x04, 0x06), Mode09.probe { "FC000000" }.pids)
+        assertEquals(listOf(0x04, 0x06), Mode09.probe { listOf("FC000000") }.pids)
     }
 
     /**
@@ -852,5 +852,45 @@ class LateIdentityAndUrlBudgetTest {
         val write = e.indexOf("f.writeText")
         val trim = e.indexOf("trimmed.remove")
         assertTrue("the record is written before any trimming", write in 1 until trim)
+    }
+}
+
+/**
+ * A functional broadcast is answered by every ECU, and they do not agree.
+ *
+ * Reading whichever reply arrived first made supported-PID discovery a race. The same
+ * Silverado scored 2, 12, 6, 0 and 6 PIDs across five runs, because three of its modules
+ * answer 0100 with 80000001 -- "PID 01 and nothing else" -- and only the engine ECU says
+ * BFDFB993. A 2025 Ioniq 5 scored zero for the same reason. What a VEHICLE supports is
+ * the union of what its modules support.
+ */
+class MultiEcuBitmapTest {
+    private val silverado = listOf("80000001", "80000001", "80000001", "BFDFB993")
+
+    @Test fun theUnionIsTakenNotTheFirstReply() {
+        val union = Mode01.supportedPids { if (it == "0100") silverado else null }
+        val first = Mode01.supportedPids { if (it == "0100") listOf(silverado[0]) else null }
+        assertEquals("reading only the first module finds almost nothing", 1, first.size)
+        assertTrue("the union must find far more, got ${union.size}", union.size > 15)
+        assertTrue("and must include what the engine ECU reported", union.contains("010C"))
+    }
+
+    @Test fun orderDoesNotChangeTheAnswer() {
+        val a = Mode01.supportedPids { if (it == "0100") silverado else null }
+        val b = Mode01.supportedPids { if (it == "0100") silverado.reversed() else null }
+        assertEquals("a race is a bug; order must not matter", a, b)
+    }
+
+    @Test fun allModulesSupportingNothingIsStillZero() {
+        // The Ioniq's three first responders. Honest zero, not a crash.
+        val none = Mode01.supportedPids {
+            if (it == "0100") listOf("80000001", "00000000", "80000001") else null
+        }
+        assertEquals(listOf("0101"), none)
+    }
+
+    @Test fun payloadsOfReturnsEveryLine() {
+        val raw = "4100BE3FA813\r410098188011\r"
+        assertEquals(2, Obd.payloadsOf("0100", raw).size)
     }
 }

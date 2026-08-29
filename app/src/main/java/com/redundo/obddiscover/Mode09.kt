@@ -33,7 +33,7 @@ object Mode09 {
      * 0902 is read separately and deliberately: the VIN is shown on screen and never written
      * to a capture file, so it must not arrive here and be logged with everything else.
      */
-    fun supported(ask: (String) -> String?): List<Int> = probe(ask).pids
+    fun supported(ask: (String) -> List<String>?): List<Int> = probe(ask).pids
 
     /**
      * The PIDs to read, and the bitmap that was used to decide -- or why there wasn't one.
@@ -90,9 +90,18 @@ object Mode09 {
      */
     private fun isMessageCount(pid: Int) = pid % 2 == 1 && pid <= 0x09
 
-    fun probe(ask: (String) -> String?): Probe {
-        val payload = ask("0900")
-        val bits = payload?.let { bitmapOf(it) }?.toLongOrNull(16)
+    fun probe(ask: (String) -> List<String>?): Probe {
+        // Every ECU answers a functional broadcast, so 0900 comes back once per module and
+        // they do not agree. Taking whichever landed first made this a race, exactly as it
+        // did for the Mode-01 bitmaps. What the VEHICLE offers is the union.
+        val replies = ask("0900") ?: emptyList()
+        var acc = 0L
+        var any = false
+        for (r in replies) {
+            val b = bitmapOf(r)?.toLongOrNull(16) ?: continue
+            acc = acc or b; any = true
+        }
+        val bits = if (any) acc else null
         if (bits != null) {
             val out = ArrayList<Int>()
             for (i in 0 until 32) {
@@ -106,9 +115,14 @@ object Mode09 {
             // An answered bitmap is authoritative. Do NOT fall back on top of it: the
             // ECU said what it has, and probing past that is asking a question already
             // answered.
-            return Probe(out, payload, viaFallback = false)
+            // With one answer, record it verbatim -- that is what earlier captures hold
+            // and it keeps the count byte visible. With several, record the union, because
+            // that is what the PID list was actually derived from and no single module's
+            // reply explains it.
+            val shown = if (replies.size == 1) replies[0] else "%08X".format(bits)
+            return Probe(out, shown, viaFallback = false)
         }
-        return Probe(LEGISLATED, payload, viaFallback = true)
+        return Probe(LEGISLATED, replies.firstOrNull(), viaFallback = true)
     }
 
     /**

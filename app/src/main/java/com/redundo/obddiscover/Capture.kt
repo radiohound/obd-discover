@@ -417,7 +417,7 @@ class CaptureRunner(
                 stdPids = Mode01.supportedPids { req ->
                     if (capStop) return@supportedPids null
                     val (raw, ok) = ble.cmd(req, 4_000)
-                    if (!ok) null else Obd.payloadOf(req, raw)?.let { Obd.hex(it) }
+                    if (!ok) null else Obd.payloadsOf(req, raw).map { Obd.hex(it) }
                 }
                 ble.log("Mode-01 bitmap scan: ${stdPids.size} PIDs supported")
                 capProgress(3)
@@ -430,7 +430,7 @@ class CaptureRunner(
                 val nineProbe = Mode09.probe { req ->
                     if (capStop) return@probe null
                     val (raw, ok) = ble.cmd(req, 4_000)
-                    if (!ok) null else Obd.payloadOf(req, raw)?.let { Obd.hex(it) }
+                    if (!ok) null else Obd.payloadsOf(req, raw).map { Obd.hex(it) }
                 }
                 ble.log("Mode-09 bitmap 0900 -> ${nineProbe.bitmap ?: "no answer"}" +
                     (if (nineProbe.viaFallback) "  (probing the legislated PIDs directly)" else ""))
@@ -667,7 +667,7 @@ class CaptureRunner(
                 stdPids = Mode01.supportedPids { req ->
                     if (capStop) return@supportedPids null
                     val (raw, ok) = ble.cmd(req, 4_000)
-                    if (!ok) null else Obd.payloadOf(req, raw)?.let { Obd.hex(it) }
+                    if (!ok) null else Obd.payloadsOf(req, raw).map { Obd.hex(it) }
                 }
                 ble.log("Mode-01 bitmap scan: ${stdPids.size} PIDs supported")
                 discover.stdPidsIn = stdPids

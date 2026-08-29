@@ -35,13 +35,24 @@ object Mode01 {
      *        testable and so the caller decides about headers -- which is the point, because
      *        on a non-CAN protocol there is no header to set.
      */
-    fun supportedPids(ask: (String) -> String?): List<String> {
+    fun supportedPids(ask: (String) -> List<String>?): List<String> {
         val out = ArrayList<String>()
         for (base in RANGES) {
             val req = "01%02X".format(base)
-            val payload = ask(req) ?: break
-            if (payload.length < 8) break
-            val bits = payload.substring(0, 8).toLongOrNull(16) ?: break
+            val replies = ask(req) ?: break
+            // OR THE MODULES TOGETHER. Every ECU answers a functional broadcast with its
+            // own bitmap, and taking one of them at random is what made this a race: a
+            // Silverado whose engine ECU says BFDFB993 also has three modules saying
+            // 80000001, and reading whichever landed first scored 2 PIDs where the truck
+            // supports far more. What the VEHICLE supports is the union.
+            var bits = 0L
+            var any = false
+            for (p in replies) {
+                if (p.length < 8) continue
+                bits = bits or (p.substring(0, 8).toLongOrNull(16) ?: continue)
+                any = true
+            }
+            if (!any) break
             for (i in 0 until 32) {
                 // Bit 31 is PID base+1, bit 0 is PID base+32 (the continuation flag).
                 if ((bits shr (31 - i)) and 1L == 1L) {

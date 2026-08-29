@@ -97,6 +97,39 @@ object Obd {
      * after the good frame. Scanning line by line and taking the first positive one keeps
      * that NAK out of the data -- the exact trap that made oil pressure decode as one byte.
      */
+    /**
+     * EVERY payload in a reply, not just the first.
+     *
+     * A functional broadcast is answered by every ECU on the bus, and they do not agree.
+     * A Silverado answers 0100 with four lines -- three modules saying 80000001 ("PID 01
+     * and nothing else") and the engine ECU saying BFDFB993 -- and payloadOf() returns
+     * whichever arrived first. That made a supported-PID scan a race: the same truck
+     * scored 2, 12, 6, 0 and 6 PIDs across five runs, and a 2025 Ioniq 5 scored zero
+     * because all three of its first responders support nothing.
+     *
+     * What a VEHICLE supports is the union of what its modules support, so the caller
+     * needs all of them.
+     */
+    fun payloadsOf(request: String, raw: String): List<ByteArray> {
+        val req = request.uppercase().replace(" ", "")
+        if (req.length < 2) return emptyList()
+        val mode = req.substring(0, 2).toIntOrNull(16) ?: return emptyList()
+        val expect = "%02X".format(mode + 0x40) + req.substring(2)
+        val out = ArrayList<ByteArray>()
+        for (line in raw.split('\r', '\n', '>')) {
+            val t = line.uppercase().replace(" ", "").trim()
+            if (t.isEmpty() || !t.startsWith(expect)) continue
+            val hex = t.substring(expect.length)
+            if (hex.isEmpty() || hex.length % 2 != 0) continue
+            if (!hex.all { it in "0123456789ABCDEF" }) continue
+            out.add(ByteArray(hex.length / 2) {
+                ((Character.digit(hex[it * 2], 16) shl 4) or
+                    Character.digit(hex[it * 2 + 1], 16)).toByte()
+            })
+        }
+        return out
+    }
+
     fun payloadOf(request: String, raw: String): ByteArray? {
         val req = request.uppercase().replace(" ", "")
         if (req.length < 2) return null
