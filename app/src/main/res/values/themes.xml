@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Platform NoActionBar theme; Compose draws its own UI on top. No extra deps needed.
+         Same choice as BoschDecoderAndroid, for the same reason. -->
+    <style name="Theme.ObdDiscover" parent="@android:style/Theme.Material.Light.NoActionBar" />
+</resources>

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- BLE central. neverForLocation is honest here: this app talks to an OBD dongle
+         plugged into the car it is sitting in, and derives nothing positional. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Pre-31 devices gate BLE scanning behind location. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+
+    <!-- A drive log runs 20-30 minutes with the screen off. Without a foreground
+         service Android suspends the process and the cold-start ramp - the one
+         measurement that cannot be repeated for six hours - is lost mid-drive. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- A short buzz when a capture ends. A ten-minute parked sweep is not watched, and a
+         three-second one on a pre-2008 car finishes before anyone looks up. Normal
+         permission: no runtime prompt, no access to anything. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- The ONLY network use in this app is the optional VIN model lookup, which is off by
+         default and sends the first 10 characters of the VIN to NHTSA's public vPIC service.
+         Positions 11-17, the serial that identifies one specific vehicle, are never sent.
+         Nothing else in the app opens a socket: scanning, decoding and export are offline.
+         See VinLookup. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.ObdDiscover">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|fontScale"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+        <service
+            android:name=".LogService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+    </application>
+</manifest>

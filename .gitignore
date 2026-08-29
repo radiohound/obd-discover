@@ -1,0 +1,18 @@
+build/
+.gradle/
+local.properties
+*.apk
+.idea/
+
+# Release signing. The keystore itself lives outside the repo; this file holds its
+# password. Neither may ever be committed -- the keystore cannot be regenerated, and
+# losing control of it means someone else can publish updates as you.
+keystore.properties
+*.jks
+*.keystore
+
+# Scratch that must never reach a public repo: capture backups pulled off the phone,
+# unposted drafts, anything staged by hand. A RAW export zip contains the VIN by
+# design, so one `git add -A` here would publish the thing the scrubbed export exists
+# to remove. Nothing under .private has ever been committed -- this keeps it that way.
+.private/

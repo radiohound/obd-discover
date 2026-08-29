@@ -1,0 +1,317 @@
+package com.redundo.obddiscover
+
+import android.content.Context
+import android.content.Intent
+import androidx.core.content.FileProvider
+import java.io.File
+import java.io.FileOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import org.json.JSONObject
+
+/**
+ * Bundle a capture and hand it to the share sheet.
+ *
+ * Without this the only way off the phone is `adb pull`, which needs the laptop this app
+ * exists to avoid. Sharing goes through Android's own sheet, so the destination is the
+ * owner's choice and nothing leaves the device until they pick one.
+ *
+ * IT SCRUBS ON THE WAY OUT, and the distinction it draws is the point. `vin_key` is a
+ * truncated SHA-256: it cannot be reversed into a VIN, but anyone holding a CANDIDATE VIN
+ * can hash it and confirm a match. That is a reasonable trade for a cache sitting on the
+ * owner's own phone, where it answers "have I mapped this car". It is the wrong trade for a
+ * file attached to a public pull request, where it lets a reader test whether a particular
+ * vehicle produced the capture. So the local copy keeps it and the shared copy does not.
+ *
+ * What survives: make, model year, WMI, and the measurements. A WMI is the manufacturer --
+ * every Subaru shares one -- so it identifies a make, never a car.
+ */
+object Export {
+
+    /** Files a contribution needs: the block map and the drive log it produced. */
+    private fun latest(dir: File, prefix: String, suffix: String): File? =
+        dir.listFiles { f -> f.name.startsWith(prefix) && f.name.endsWith(suffix) }
+            ?.maxByOrNull { it.lastModified() }
+
+    /**
+     * The newest map belonging to THIS car, not merely the newest map.
+     *
+     * `latest` alone was an attribution bug waiting for a second vehicle: scan car A, scan
+     * car B, export, and B's bundle contains A's map under B's make in the filename and the
+     * README. Observed 2026-08-27 with a Subaru map exported as a Toyota capture.
+     *
+     * Matching is on vin_key, the same per-car key Capture uses to decide whether a stored
+     * map applies. An empty vinKey (VIN unreadable) matches only files that are ALSO
+     * keyless: an unidentified car is not evidence that some identified car's map is his.
+     */
+    private fun mapFor(dir: File, vinKey: String): File? =
+        dir.listFiles { f -> f.name.startsWith("discover-") && f.name.endsWith(".json") }
+            ?.sortedByDescending { it.lastModified() }
+            ?.firstOrNull {
+                try { JSONObject(it.readText()).optString("vin_key", "") == vinKey }
+                catch (_: Exception) { false }   // unreadable or pre-vin_key: not ours to claim
+            }
+
+    /**
+     * Strip identifying fields from a discover.json.
+     *
+     * Rebuilt key by key rather than by deleting from the original, so a field added later
+     * cannot be carried out by accident: anything not named here simply does not appear.
+     */
+    private fun scrubbedJson(src: File): ByteArray {
+        val o = JSONObject(src.readText())
+        // WHICH identifiers answered is the discovery and is safe to share. What they
+        // RETURNED is not on this list: `mode21` and `mode09` hold payloads, and a Mode-09
+        // record is the VIN itself while an unknown one-byte Mode-21 identifier may be a
+        // serial. Those two reach a file only through the raw export.
+        val keep = listOf("wmi", "preset", "probes", "offsets_probed", "headers_targeted",
+                          "addressing", "aborted", "blocks", "detail", "speaks_mode22",
+                          "protocol", "mode01", "mode21_ids")
+        val out = JSONObject()
+        for (k in keep) if (o.has(k)) out.put(k, o.get(k))
+        out.put("_note", "vin_key removed for sharing; wmi identifies the manufacturer only")
+        return out.toString(1).toByteArray()
+    }
+
+    data class Bundle(val file: File, val contents: List<String>, val scrubbed: Boolean)
+
+    /**
+     * Stored trouble codes, as their own file in the bundle.
+     *
+     * They were read on every capture, shown on screen, and then lost -- a code seen on two
+     * vehicles could not be looked up afterwards because nothing had written it down. A
+     * capture should carry what it observed.
+     *
+     * Codes are not identifying: a P0420 says a catalyst is below threshold, not whose car
+     * it is. So this file is included in the scrubbed export too.
+     */
+    private fun dtcText(codes: List<Dtc.Code>): String = buildString {
+        appendLine("Stored trouble codes, Mode 03")
+        appendLine("=============================")
+        appendLine()
+        if (codes.isEmpty()) { appendLine("none stored"); return@buildString }
+        codes.forEach { c ->
+            appendLine(c.code)
+            appendLine("    system     : ${c.system}${if (c.subsystem.isNotEmpty()) " / " + c.subsystem else ""}")
+            appendLine("    defined by : ${if (c.generic) "SAE (generic)" else "the manufacturer"}")
+            appendLine("    description: ${c.description ?: "none — manufacturer-defined, no standard meaning"}")
+            appendLine()
+        }
+    }
+
+    /**
+     * @param scrub true for a bundle meant to leave the owner's hands.
+     *
+     * TWO EXPORTS, because the two uses have genuinely different requirements and pretending
+     * otherwise makes one of them wrong. A bundle going onto a pull request must not carry
+     * anything that ties it to a specific car. A bundle going to the owner's own laptop
+     * should carry everything, including the VIN, because its whole job is to say WHICH car
+     * this was among several.
+     *
+     * The raw form is the only thing in this app that writes a VIN to disk, and it does so
+     * only when the owner explicitly asks for it about their own vehicle.
+     */
+    fun build(ctx: Context, info: VehicleId.Info?, scrub: Boolean,
+              codes: List<Dtc.Code> = emptyList(), vinKey: String = "",
+              adapterLog: List<String> = emptyList(),
+              names: List<Triple<String, String, String>> = emptyList(),
+              namesFrom: String = ""): Bundle? {
+        val dir = File(ctx.getExternalFilesDir(null), "logs")
+        val map = mapFor(dir, vinKey)
+
+        // A drive log carries no vehicle key of its own, so it is attributed by ORDER: the
+        // log for this capture is written after this capture's map. An older log is some
+        // other car's drive and is left out rather than guessed at. With no map at all
+        // there is nothing to date it against, so nothing is claimed.
+        val log = latest(dir, "discovered-", ".csv")
+            ?.takeIf { map != null && it.lastModified() >= map.lastModified() }
+        if (map == null && log == null) return null
+
+        // Inside logs/, because that is the only directory file_paths.xml exposes to the
+        // FileProvider. A zip written to the parent throws IllegalArgumentException at
+        // share time, which would surface as a crash the moment the user taps Share.
+        // Distinct names, so the two kinds stay tellable apart after the fact -- on a
+        // laptop, in a downloads folder, months later.
+        val out = File(dir, "capture-${info?.make ?: "vehicle"}${if (scrub) "" else "-RAW"}.zip")
+        val names0 = ArrayList<String>()
+        var scrubbed = false
+        ZipOutputStream(FileOutputStream(out)).use { z ->
+            map?.let {
+                z.putNextEntry(ZipEntry(it.name))
+                z.write(if (scrub) scrubbedJson(it) else it.readBytes())
+                z.closeEntry(); names0.add(it.name); scrubbed = scrub
+            }
+            log?.let {
+                z.putNextEntry(ZipEntry(it.name))
+                it.inputStream().use { s -> s.copyTo(z) }
+                z.closeEntry(); names0.add(it.name)
+            }
+            // THE ADAPTER LOG. Highest-value diagnostic this app produces, and until now it
+            // was discarded on exit -- a bundle showed `preset: generic` and a missing VIN,
+            // which is indistinguishable from a dozen causes. The 29-bit VIN defect was only
+            // diagnosable because someone photographed this view before it scrolled away.
+            //
+            // Newest-first in the UI, so it is reversed here: a file is read top-down.
+            if (adapterLog.isNotEmpty()) {
+                z.putNextEntry(ZipEntry("adapter-log.txt"))
+                val body = adapterLog.reversed().joinToString("\n")
+                z.write(
+                    ("OBD Discover adapter log — build ${BuildTag.ID}\n" +
+                        "oldest first; the on-screen view is newest first\n\n" +
+                        (if (scrub) redactVins(body) else body) + "\n").toByteArray(),
+                )
+                z.closeEntry(); names0.add("adapter-log.txt")
+            }
+            // NAMES, NOT VALUES, AND IN THEIR OWN FILE.
+            //
+            // The drive CSV stores hits as raw hex on purpose -- Obd's contract note: "a
+            // wrong decode guess made in the field must not destroy data that a better guess
+            // at home could still use". An OBDb name is exactly such a guess: it is right for
+            // the model that was MATCHED, and the match can be wrong. Writing decoded numbers
+            // into the CSV would overwrite the evidence with an interpretation, and renaming
+            // the columns would destroy the request identity that `sweep --blocks-from` and
+            // every later re-read depend on.
+            //
+            // So the CSV is left byte-identical and the names ride alongside, keyed by the
+            // exact column string. correlate ignores the file today; a reader does not have
+            // to, and neither would correlate if it later chose to.
+            if (names.isNotEmpty()) {
+                z.putNextEntry(ZipEntry("signal-names.csv"))
+                z.write(namesCsv(names, namesFrom).toByteArray())
+                z.closeEntry(); names0.add("signal-names.csv")
+            }
+            if (codes.isNotEmpty()) {
+                z.putNextEntry(ZipEntry("trouble-codes.txt"))
+                z.write(dtcText(codes).toByteArray())
+                z.closeEntry(); names0.add("trouble-codes.txt")
+            }
+            z.putNextEntry(ZipEntry("README.txt"))
+            z.write(readme(info, names0, scrub, names, namesFrom).toByteArray())
+            z.closeEntry(); names0.add("README.txt")
+        }
+        return Bundle(out, names0, scrubbed)
+    }
+
+    /**
+     * Belt and braces over the redaction at the logging site.
+     *
+     * Two defences because they fail differently: a new log line can forget to redact, and a
+     * VIN can appear as plain text OR as ASCII-in-hex split across ISO-TP frame markers --
+     * which is how one survived a regex sweep of a bundle before being spotted by eye.
+     *
+     * Only runs for the scrubbed export. The raw export is meant to carry the VIN; that is
+     * its entire purpose and it says so at the top of its README.
+     */
+    internal fun redactVins(text: String): String {
+        var out = Regex("\\b[A-HJ-NPR-Z0-9]{17}\\b").replace(text) {
+            if (it.value.all { c -> c.isDigit() }) it.value else "[VIN REDACTED]"
+        }
+        // ASCII-in-hex. Read the PAYLOAD TOKENS, not the whole line: sweeping every hex
+        // character in "VIN 0902 @7DF try 1 -> ok: 014 0:4902..." drags in 0902, 7DF and 014
+        // too, which shifts the byte boundary so the VIN never aligns and the check passes
+        // on a line that is leaking. A token may carry an ISO-TP frame index ("0:", "1:").
+        out = out.lines().joinToString("\n") { line ->
+            val hex = StringBuilder()
+            for (tok in line.split(Regex("\\s+"))) {
+                val t = tok.replace(Regex("^\\d+:"), "")
+                if (t.length >= 6 && t.length % 2 == 0 && t.all { it in "0123456789ABCDEFabcdef" }) {
+                    hex.append(t.uppercase())
+                }
+            }
+            if (hex.length < 34) return@joinToString line
+            val ascii = StringBuilder()
+            var i = 0
+            while (i + 1 < hex.length) {
+                val v = hex.substring(i, i + 2).toInt(16)
+                ascii.append(if (v in 0x20..0x7E) v.toChar() else '.')
+                i += 2
+            }
+            if (Regex("[A-HJ-NPR-Z0-9]{17}").containsMatchIn(ascii.toString()))
+                line.substringBefore("->").trimEnd() + " -> [VIN REDACTED]"
+            else line
+        }
+        return out
+    }
+
+    /** column,name,unit — keyed by the exact drive-CSV column string. */
+    internal fun namesCsv(rows: List<Triple<String, String, String>>, from: String) = buildString {
+        appendLine("# Signal names for the columns in discovered-*.csv.")
+        appendLine("# Source: OBDb/$from — https://github.com/OBDb — CC BY-SA 4.0")
+        appendLine("# These name a column; they do NOT decode it. The CSV keeps raw hex on")
+        appendLine("# purpose, and this mapping is only as right as the model match was.")
+        appendLine("column,name,unit")
+        for ((c, n, u) in rows) appendLine("\"$c\",\"${n.replace("\"", "'")}\",\"$u\"")
+    }
+
+    internal fun readme(
+        info: VehicleId.Info?, names: List<String>, scrub: Boolean,
+        signals: List<Triple<String, String, String>> = emptyList(), signalsFrom: String = "",
+    ) = buildString {
+        appendLine("OBD capture")
+        appendLine("===========")
+        appendLine()
+        appendLine("Vehicle:      ${info?.year?.toString() ?: "?"} ${info?.make ?: "unknown make"}")
+        appendLine("WMI:          ${info?.wmi ?: "?"}   (manufacturer only, not a specific car)")
+        if (!scrub && !info?.vin.isNullOrEmpty()) {
+            appendLine("VIN:          ${info?.vin}")
+            appendLine("              ^ THIS IS THE RAW EXPORT. It identifies one specific")
+            appendLine("                vehicle and its owner. Do not attach it to a public")
+            appendLine("                issue or pull request -- use the scrubbed export.")
+        }
+        appendLine("Tool:         OBD Discover build ${BuildTag.ID}")
+        if (signals.isNotEmpty()) {
+            appendLine()
+            appendLine("Known signals (${signals.size})")
+            appendLine("-".repeat(14 + signals.size.toString().length + 2))
+            appendLine("From OBDb/$signalsFrom — https://github.com/OBDb — CC BY-SA 4.0.")
+            appendLine("These NAME a drive-log column; they do not decode it. The CSV keeps raw")
+            appendLine("hex on purpose, and this list is only as right as the model match was.")
+            appendLine("Repeated in signal-names.csv, keyed by column, for anything that parses.")
+            appendLine()
+            val w = signals.maxOf { it.first.length }
+            for ((col, name, unit) in signals.sortedBy { it.second }) {
+                appendLine("  ${col.padEnd(w)}  $name${if (unit.isEmpty()) "" else "  [$unit]"}")
+            }
+        }
+        appendLine()
+        appendLine("Files:")
+        names.forEach { appendLine("  $it") }
+        appendLine()
+        appendLine("discover-*.json  Which Mode-22 blocks this vehicle answers, and every DID")
+        appendLine("                 that returned data. Matches obd_scan's discover.json, so")
+        appendLine("                 `sweep --blocks-from` reads it unmodified.")
+        appendLine("signal-names.csv Names for the drive-log columns, where OBDb documents")
+        appendLine("                 this model. Names only -- the CSV keeps raw hex, because a")
+        appendLine("                 decode guessed in the field must not overwrite evidence a")
+        appendLine("                 better guess at home could still use.")
+        appendLine("adapter-log.txt  Every command and reply, oldest first. Read this when a")
+        appendLine("                 capture looks wrong -- it is the only file that says what")
+        appendLine("                 was ASKED, not merely what answered.")
+        appendLine("discovered-*.csv Drive log of those DIDs plus the generic anchors. Matches")
+        appendLine("                 obd_scan's drive.csv, so `correlate` reads it directly.")
+        appendLine()
+        appendLine("Raw hex is stored undecoded on purpose: a wrong decode guess made in the")
+        appendLine("field must not destroy data a better guess at home could still use.")
+        appendLine()
+        if (scrub) {
+            appendLine("PRIVACY: no VIN is present, and the per-car key the app keeps locally")
+            appendLine("has been removed from this copy. Safe to attach to a public thread.")
+        } else {
+            appendLine("PRIVACY: this is the RAW export and contains the VIN and the per-car")
+            appendLine("key. Keep it. Share the scrubbed export instead.")
+        }
+    }
+
+    /** Hand the bundle to the share sheet. The destination is the owner's choice. */
+    fun share(ctx: Context, zip: File) {
+        val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", zip)
+        val i = Intent(Intent.ACTION_SEND).apply {
+            type = "application/zip"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, zip.name)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        ctx.startActivity(Intent.createChooser(i, "Share capture")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+}

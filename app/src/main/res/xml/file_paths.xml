@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- getExternalFilesDir(null)/logs, where ScanRunner writes the CSVs. Also the path
+         `adb pull` reaches without root:
+         /sdcard/Android/data/com.redundo.obddiscover/files/logs/ -->
+    <external-files-path name="logs" path="logs/" />
+</paths>

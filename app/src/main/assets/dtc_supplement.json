@@ -1,0 +1,5 @@
+{
+  "_about": "Codes met in the field that the bundled SAE table does not cover. Community-reported, NOT standard definitions. Shown as such, never as authoritative.",
+  "_note": "C0300 was listed here briefly on 2026-08-27. It turned out to be a parser artefact -- two ECUs each answering '43 00' (no codes) were being read as one code word 0x4300. Removed once the cause was found. Kept as a reminder that an entry here needs a real observation behind it.",
+  "codes": {}
+}

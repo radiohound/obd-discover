@@ -1,0 +1,49 @@
+Sources bundled with OBD Discover
+=================================
+
+obd-gauge-cluster — the project this app is built to feed
+  https://github.com/cheeseprince/obd-gauge-cluster
+  MIT License, Copyright (c) 2026 Alan Young
+
+  Its obd_scan tooling defined the method this app follows -- census, sweep,
+  drive log, correlate -- and the capture formats it writes. discover-*.json is
+  read by `obd_scan sweep --blocks-from` unmodified, and discovered-*.csv by
+  `obd_scan correlate`. Producing those from a phone rather than a laptop is the
+  whole purpose here.
+
+  Directly derived: Obd.decodeAnchor is a port of stages._decode_anchor,
+  Obd.ANCHORS follows catalog.ANCHORS, and Triage mirrors correlate.py's
+  interpretations, sentinel set and thresholds -- deliberately, so this app's
+  advisory reading cannot quietly disagree with the authoritative one.
+
+  If you scan a vehicle with this app, that is the project to send results to.
+
+
+dtc_generic.json
+  Generic SAE J2012 trouble-code descriptions, from the dtc-database project --
+  https://github.com/Wal33D/dtc-database
+  Licence: MIT.
+
+  Generic codes only. Manufacturer-specific codes are omitted deliberately:
+  their meaning is defined by each manufacturer, so a shared table cannot name
+  them and this app shows their structure instead of guessing.
+
+
+obdb_hints.json, obdb_supported.json
+  Adapted from the OBDb vehicle signal database -- https://github.com/OBDb
+  Licence: CC BY-SA 4.0 -- https://creativecommons.org/licenses/by-sa/4.0/
+
+  What was taken: locations only. Which header answers, which service, which
+  256-DID block, and which DIDs are known to respond. Not the signal
+  definitions, names or decode formulas.
+
+  As adaptations these files remain CC BY-SA 4.0. Redistribute them, modified
+  or not, and you must credit OBDb and keep the same licence.
+
+
+wmi_to_make.json
+  Derived from the NHTSA vPIC database -- https://vpic.nhtsa.dot.gov
+  Public domain (a work of the U.S. Government).
+
+
+Application source: MIT. See LICENSE.
