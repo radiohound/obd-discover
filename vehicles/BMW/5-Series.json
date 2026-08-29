@@ -1,4 +1,6 @@
 {
+  "vin_pattern": "WBAFR7C5",
+  "year": 2013,
   "make": "BMW",
   "model": "5 Series",
   "addressing": "11-bit",
@@ -26,5 +28,5 @@
     "2259"
   ],
   "source": "obd-discover, 4 on-car capture(s) 2026-08",
-  "notes": "F10. 2217xx holds the odometer in kilometres, verified against the dash and over a 17-minute drive. 2258xx and 224Axx are absent from the community list entirely."
+  "notes": "535i (F10), model confirmed from this capture's own VIN via vPIC. 2217xx holds the odometer in kilometres, verified against the dash and over a 17-minute drive. 2258xx and 224Axx are absent from the community list entirely."
 }

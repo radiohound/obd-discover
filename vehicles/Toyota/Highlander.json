@@ -93,5 +93,5 @@
   "mode22": "SILENT",
   "mode22_evidence": "no reply to any of 23 probes",
   "source": "obd-discover, 6 on-car capture(s) 2026-08",
-  "notes": "K-line (ISO 9141-2). Mode 22 answered nothing; this ECU sent no negative response codes at all across the run. Recorded as evidence, not as licence to skip Mode 22 on another Highlander."
+  "notes": "MODEL UNVERIFIED \u2014 this capture carries no VIN, so the model name is an inference and not ground truth. Re-scan with CONTRIBUTE to confirm. K-line (ISO 9141-2). Mode 22 answered nothing; this ECU sent no negative response codes at all across the run. Recorded as evidence, not as licence to skip Mode 22 on another Highlander."
 }

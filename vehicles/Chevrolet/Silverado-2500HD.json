@@ -51,5 +51,5 @@
     "22FE"
   ],
   "source": "obd-discover, 2 on-car capture(s) 2026-08",
-  "notes": "1,929 identifiers across 40 blocks."
+  "notes": "MODEL UNVERIFIED \u2014 this capture carries no VIN, so the model name is an inference and not ground truth. Re-scan with CONTRIBUTE to confirm. 1,929 identifiers across 40 blocks."
 }

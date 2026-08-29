@@ -1,4 +1,6 @@
 {
+  "vin_pattern": "1FTYR14D",
+  "year": 2007,
   "make": "Ford",
   "model": "Ranger",
   "addressing": "11-bit",
@@ -25,5 +27,6 @@
     "22E3",
     "22E4"
   ],
-  "source": "obd-discover, 1 on-car capture(s) 2026-08"
+  "source": "obd-discover, 1 on-car capture(s) 2026-08",
+  "notes": "model confirmed from this capture's own VIN via vPIC (2007 Ranger, pickup)"
 }
