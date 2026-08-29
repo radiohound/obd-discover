@@ -486,3 +486,38 @@ class VehicleDbTest {
         }
     }
 }
+
+/**
+ * The contribute export, pinned at the schema it writes.
+ *
+ * The first version of it required `blocks` and so could not contribute a K-line car at
+ * all -- it would have silently excluded the Highlander, whose record is the richer one.
+ */
+class ContributeSchemaTest {
+    private fun records() = java.io.File("../vehicles").walkTopDown()
+        .filter { it.extension == "json" }.map { it to org.json.JSONObject(it.readText()) }
+
+    @Test fun aNonCanCarIsRepresentable() {
+        val (_, h) = records().first { it.second.optString("model") == "Highlander" }
+        assertEquals("A3", h.optString("protocol"))
+        assertEquals("SILENT", h.optString("mode22"))
+        assertTrue("must carry Mode-01 PIDs", h.getJSONArray("pids").length() > 0)
+        assertTrue("must carry Mode-21 ids", h.getJSONArray("mode21_ids").length() > 0)
+        assertTrue("a K-line car has no CAN blocks", !h.has("blocks"))
+    }
+
+    @Test fun mode22SilenceIsEvidenceNotAnInstruction() {
+        // If this ever becomes a skip, the BMW regression returns: OBDb's list would have
+        // lost 358 of 462 identifiers on the F10.
+        val src = java.io.File("src/main/java/com/redundo/obddiscover/Export.kt").readText()
+        assertTrue("the intent must stay written down where the field is set",
+            src.contains("NOT as permission to skip"))
+    }
+
+    @Test fun everyRecordIsWithinTheVinPatternLimit() {
+        for ((f, r) in records()) {
+            assertTrue("${f.name}: positions 9-17 include the serial",
+                r.optString("vin_pattern").length <= 8)
+        }
+    }
+}

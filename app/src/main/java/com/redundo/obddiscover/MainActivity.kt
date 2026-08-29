@@ -243,6 +243,29 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                     ) { Text("EXPORT RAW") }
+                    // A THIRD COLOUR, because this is a third thing. Green is safe to send
+                    // anywhere, orange identifies the car, and this one is meant to be
+                    // published -- to a public pull request, by someone who should be able
+                    // to see at a glance that it is not either of the other two.
+                    Button(
+                        enabled = !cap.running,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1565C0), contentColor = Color.White),
+                        onClick = {
+                            val b = runCatching {
+                                Export.contribute(this@MainActivity, cap.info,
+                                    cap.modelName, cap.vinKey)
+                            }.getOrNull()
+                            exportNote = when {
+                                b == null -> "nothing discovered yet to contribute"
+                                cap.modelName.isEmpty() ->
+                                    "${b.file.name} — no model resolved; name it before opening a PR"
+                                else ->
+                                    "${b.file.name} — VIN pattern only (8 chars), no serial, no payloads"
+                            }
+                            b?.let { Export.share(this@MainActivity, it.file, "application/json") }
+                        },
+                    ) { Text("CONTRIBUTE") }
                 }
                 // Always available, unlike the capture exports, which need a capture. The
                 // case this serves is the adapter that will not connect or the car that

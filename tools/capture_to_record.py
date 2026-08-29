@@ -21,6 +21,11 @@ def record(mapfile, make=None, model="", pattern="", year=None):
     r = {"vin_pattern": pattern, "year": year, "make": mk, "model": model,
          "addressing": d.get("addressing", ""), "protocol": d.get("protocol", ""),
          "headers": [h for h in hdrs if h], "blocks": blocks,
+         # A non-CAN car has no blocks; what it answers is these lists. Excluding them
+         # would drop the Highlander, whose Mode-22 silence is a real finding.
+         "pids": d.get("mode01") or [], "mode21_ids": d.get("mode21_ids") or [],
+         "mode22": d.get("mode22_verdict", ""),
+         "mode22_evidence": d.get("mode22_evidence", ""),
          "source": f"obd-discover capture {os.path.basename(mapfile)}"}
     if d.get("aborted"):
         # An aborted run's block list is real but incomplete; say so rather than let it

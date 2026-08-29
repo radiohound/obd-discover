@@ -37,6 +37,28 @@ A single scan from this app supplies all of it at once, from the car itself.
 `blocks` are 256-identifier ranges, not individual DIDs. A Silverado answering 1,929 DIDs
 is 40 blocks, and blocks are what the scanner actually consumes to reorder a run.
 
+## Cars that are not CAN
+
+A K-line car has no headers and no blocks, and is still worth contributing — the
+Highlander's record is the richer one:
+
+```json
+{
+  "make": "Toyota", "model": "Highlander",
+  "protocol": "A3", "addressing": "none — A3 is not CAN",
+  "pids": ["0101", "0103", "..."],          // 20 Mode-01 PIDs
+  "mode21_ids": ["2100", "2101", "..."],    // 63 Mode-21 identifiers
+  "mode22": "SILENT",
+  "mode22_evidence": "no reply to any of 23 probes"
+}
+```
+
+`mode22` is the single most valuable field a K-line car produces, because it is why the
+next scan need not spend a sweep rediscovering the same silence. It is recorded as
+**evidence, not as permission to skip.** One car's silence is not every car's, and this
+project's rule is that observations reorder a scan and never restrict it — the BMW is why:
+probing only what was written down would have lost 358 of 462 identifiers.
+
 ## What must never be in one of these files
 
 **VIN positions 9 through 17.** Position 9 is a check digit, 11 is the assembly plant, and
@@ -51,7 +73,7 @@ answered, never what they returned.
 
 ## Adding your car
 
-1. Scan it with the app, then use **Export → contribute**.
+1. Scan it with the app, then tap **CONTRIBUTE** (the blue button).
 2. Drop the file in `vehicles/<Make>/`.
 3. Open a pull request.
 
