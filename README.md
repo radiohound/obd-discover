@@ -108,11 +108,15 @@ car in front of it:
 | WMI → manufacturer | 492 codes | NHTSA vPIC (public domain) |
 | Generic trouble codes | 9,415 — 7,387 P, 1,230 U, 498 C, 300 B | dtc-database (MIT) |
 
-Where a make has model-specific data, the app reports which model the vehicle **answers
-like** — matched against the locations that actually responded, not decoded from the VIN.
-122 of the 147 models have a unique signature. A model is only claimed when every location
-it documents was found, and a tie is reported as a tie, because some ties are real: a Bolt
-EV and a Bolt EUV are one platform.
+Where a make has model-specific data and the optional online lookup is on, the app resolves
+the model from the VIN via vPIC and uses it to select that model's locations rather than the
+make's merged set — a Silverado is handed 18 locations over four headers instead of the 39
+over ten that every Chevrolet shares.
+
+It also tries to recognise a model from the locations that answered, without any lookup. That
+path has never produced a match on a real vehicle and should not be relied on: OBDb documents
+models across modules this app deliberately never probes, so the pairs that would tell two
+models apart are usually invisible to it.
 
 **Hints reorder a sweep; they never restrict one.** This matters more than the table sizes. On a
 BMW F10 with six real Mode-22 blocks, three were absent from the community list — so a scan that

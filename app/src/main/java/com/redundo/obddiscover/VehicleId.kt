@@ -52,6 +52,33 @@ object VehicleId {
         return out.sorted()
     }
 
+    /**
+     * OBDb repository from a make plus whatever vPIC called the model or series.
+     *
+     * Replaces signature matching as the route to a model, because that route does not work.
+     * It required every documented (header, block) pair to be found, and OBDb documents them
+     * across modules this app deliberately never probes -- 753, 7A2, 7B0 on a Subaru. Four
+     * captures on builds carrying it produced zero matches.
+     *
+     * The "122 of 147 uniquely identifiable" figure behind it was measured on FULL
+     * signatures. On the headers the app actually sees it is 63 of 94, and the reachable
+     * subset is usually one or two pairs, which discriminates nothing. That was a property
+     * of the data, not of the app.
+     *
+     * vPIC gives the answer directly, and tries series when the model name is not a repo:
+     * a 535i is not an OBDb repository but BMW-5-Series is.
+     */
+    fun repoForName(make: String, model: String, series: String): String {
+        val m = models ?: return ""
+        val want = listOf(model, series).filter { it.isNotBlank() }
+            .map { "$make-${it.replace(" ", "-")}".lowercase() }
+        for (k in m.keys()) {
+            val r = m.optJSONObject(k)?.optString("r", "") ?: continue
+            if (r.lowercase() in want) return r
+        }
+        return ""
+    }
+
     /** OBDb repository for a model, e.g. "Chevrolet-Silverado-1500". "" if unknown. */
     fun repoFor(make: String, model: String): String =
         models?.optJSONObject("$make|$model")?.optString("r", "") ?: ""

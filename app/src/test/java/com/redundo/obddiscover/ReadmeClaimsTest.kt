@@ -200,6 +200,19 @@ class ReadmeClaimsTest {
         }
     }
 
+    /** The README must not claim the signature match works -- it never has on a car. */
+    @Test fun readmeDoesNotOverclaimSignatureMatching() {
+        assertTrue("the discredited uniqueness figure must be gone", !readme.contains("122 of the 147"))
+        claims("has never produced a match on a real vehicle")
+    }
+
+    /** vPIC's model, not the signature match, is what selects an OBDb repo. */
+    @Test fun namingGoesThroughTheLookup() {
+        assertTrue(source("VehicleId.kt").contains("fun repoForName("))
+        assertTrue("Capture must prefer the vPIC repo",
+            source("Capture.kt").contains("vpicRepo.ifEmpty"))
+    }
+
     /** The Silverado is the case this was built for: fewer headers than the merged make. */
     @Test fun silveradoIsNarrowerThanTheMergedMake() {
         val models = JSONObject(asset("obdb_models.json"))

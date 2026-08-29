@@ -37,6 +37,10 @@ import org.json.JSONObject
 object VinLookup {
 
     data class Result(val model: String, val series: String, val year: String, val engine: String) {
+        /** The OBDb repo this names, or "" -- see VehicleId.repoForName. */
+        fun repo(ctx: Context, make: String): String =
+            VehicleId.repoForName(make, model, series)
+
         val label: String get() = listOf(year, model, series)
             .filter { it.isNotEmpty() && it != model }.plus(model).distinct()
             .joinToString(" ").trim()
