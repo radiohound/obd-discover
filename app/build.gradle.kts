@@ -42,10 +42,17 @@ android {
         //
         // Derived from the commit, so it cannot disagree with the code. Falls back to the
         // version name where git is unavailable, e.g. a source download.
-        val tag = providers.exec {
+        // Read at configure time, so a build made BEFORE its commit lands would otherwise
+        // announce the previous commit while carrying newer code -- which is the same
+        // wrong answer the hand-edited constant gave, arrived at from the other side.
+        // "+dirty" says the build contains changes no commit describes.
+        val head = providers.exec {
             commandLine("git", "log", "-1", "--format=%cd-%h", "--date=format:%Y-%m-%d")
         }.standardOutput.asText.map { it.trim() }.orElse("").get()
-            .ifEmpty { "v$versionName" }
+        val dirty = providers.exec {
+            commandLine("git", "status", "--porcelain")
+        }.standardOutput.asText.map { it.trim() }.orElse("").get().isNotEmpty()
+        val tag = (head.ifEmpty { "v$versionName" }) + if (dirty) "+dirty" else ""
         buildConfigField("String", "BUILD_TAG", "\"$tag\"")
     }
 
