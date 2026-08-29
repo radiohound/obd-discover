@@ -10,6 +10,7 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import java.io.File
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -82,13 +83,38 @@ class ElmBle(private val ctx: Context) {
     private var writeChar: BluetoothGattCharacteristic? = null
     private var notifyChar: BluetoothGattCharacteristic? = null
 
+    /**
+     * Also written to disk, because the in-memory list dies with the process.
+     *
+     * The on-screen log holds 120 lines and is cleared on restart. Somebody whose adapter
+     * will not connect force-quits the app, reopens it and taps REPORT -- and gets a log with
+     * one line in it, at exactly the moment it is the only evidence there is. Proved by
+     * building the report feature and then using it: the first bundle carried a single line,
+     * "scan start".
+     *
+     * ble.log is called for notable events, not per probe, so this is a handful of short
+     * appends per scan. The file is trimmed when it passes 128 KB.
+     */
+    private val logFile: File by lazy { File(ctx.filesDir, "adapter.log") }
+
     fun log(msg: String) {
         android.util.Log.i("ELMBLE", msg)
+        runCatching {
+            if (logFile.length() > 128 * 1024) {
+                val keep = logFile.readLines().takeLast(400)
+                logFile.writeText(keep.joinToString("\n") + "\n")
+            }
+            logFile.appendText(msg + "\n")
+        }
         handler.post {
             connLog.add(0, msg)
             while (connLog.size > 120) connLog.removeAt(connLog.size - 1)
         }
     }
+
+    /** Everything logged, including before the last restart. Oldest first. */
+    fun persistedLog(): List<String> =
+        runCatching { logFile.readLines() }.getOrElse { emptyList() }
 
     /** Human meaning for the GATT status codes that actually show up in the field. */
     fun gattStatusName(code: Int) = when (code) {

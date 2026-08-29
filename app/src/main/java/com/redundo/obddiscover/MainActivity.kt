@@ -251,8 +251,12 @@ class MainActivity : ComponentActivity() {
                 Button(
                     onClick = {
                         val b = runCatching {
+                            // The PERSISTED log, not just this session's -- the report is
+                            // most needed after a restart, when the in-memory list is empty.
                             Export.report(
-                                this@MainActivity, ble.connLog.toList(), ident,
+                                this@MainActivity,
+                                ble.persistedLog().asReversed().ifEmpty { ble.connLog.toList() },
+                                ident,
                                 ble.boundProfile, ble.mtu, ble.connected,
                                 cap.protocol, cap.phase.name, cap.status, cap.info,
                             )

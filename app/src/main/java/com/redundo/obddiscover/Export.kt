@@ -273,7 +273,7 @@ object Export {
                 appendLine("Vehicle:    ${info?.year?.toString() ?: "?"} ${info?.make ?: "unknown make"}" +
                     (if (info?.wmi.isNullOrEmpty()) "" else "  (WMI ${info?.wmi})"))
                 appendLine("Phase:      $phase")
-                appendLine("Status:     $status")
+                appendLine("Status:     ${status.ifBlank { "(nothing run yet)" }}")
                 appendLine()
                 appendLine("No VIN, no Bluetooth address and no drive data are in this file.")
                 appendLine("adapter-log.txt is what was ASKED, not merely what answered.")
