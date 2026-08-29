@@ -514,6 +514,24 @@ class ContributeSchemaTest {
             src.contains("NOT as permission to skip"))
     }
 
+    /**
+     * The README quotes the Highlander's record as the argument that K-line cars are not
+     * second-class. Numbers in a README rot silently; this makes them fail loudly.
+     */
+    @Test fun theReadmeNumbersForTheHighlanderAreTrue() {
+        // Collapsed, because the README hard-wraps and a number can land on the line
+        // before the noun it counts.
+        val readme = java.io.File("../README.md").readText().replace(Regex("\\s+"), " ")
+        val h = org.json.JSONObject(java.io.File("src/main/assets/vin_patterns.json").readText())
+            .getJSONObject("locations").getJSONObject("Toyota|Highlander")
+        val m21 = h.getJSONArray("m21").length()
+        val pid = h.getJSONArray("pid").length()
+        assertTrue("README says $m21 Mode-21 identifiers?",
+            readme.contains("$m21 Mode-21 identifiers"))
+        assertTrue("README says $pid Mode-01 PIDs?", readme.contains("$pid Mode-01 PIDs"))
+        assertEquals("and that Mode 22 answers nothing", "SILENT", h.optString("m22"))
+    }
+
     @Test fun everyRecordIsWithinTheVinPatternLimit() {
         for ((f, r) in records()) {
             assertTrue("${f.name}: positions 9-17 include the serial",
