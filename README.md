@@ -207,6 +207,47 @@ and a cold-start capture wants the car left alone for six hours beforehand. A us
 around $100, which together with the adapter is a complete rig — and it rides in the footwell
 on its own battery, which is not something you would ask of a laptop.
 
+## Installing
+
+No release APK is published yet, so build it and push it over USB:
+
+```
+./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+Needs Android 8.0 or later (API 26). If you sideload an APK rather than using `adb`,
+Android will ask you to allow installs from whichever app you downloaded it with.
+
+**Permissions it will ask for, and why:**
+
+| Permission | Why |
+| :--- | :--- |
+| Nearby devices / Bluetooth | to find and talk to the adapter |
+| Location | Android requires it for *any* BLE scan — this app never reads your location, and there is no code in it that does |
+| Notifications | so the foreground service can say a scan is running |
+
+The location one surprises people. It is an Android platform rule for Bluetooth
+scanning, not something this app wants; denying it stops the adapter being found at all.
+
+**First run:**
+
+1. Plug a BLE ELM327 adapter into the OBD port and switch the ignition on.
+2. Open the app and tap **START**. Three lights — scan, link, ready — show which step
+   is which, so a failure names itself rather than collapsing into "not connected".
+   If the adapter is not in the list by name, tap it anyway: the name list ranks
+   candidates, it does not gate them.
+3. Tap **CAPTURE**. It reads the VIN and stored codes, then maps the vehicle — 15–20
+   minutes parked on a car it has not seen before, seconds on one it has.
+4. Drive when it says to. **22 minutes is the floor** for a useful log; the bar turns
+   green when there is enough.
+5. **EXPORT SCRUBBED** gives you a zip that is safe to attach to a public issue.
+   **EXPORT RAW** keeps the VIN and is for your own records.
+
+**CONTROLS TEST** is the other half: you operate the air conditioning, lights, brakes
+and steering to a prompt while it logs. Fields with no relationship to speed or
+temperature can only be identified that way, and it works parked.
+
 ## Building
 
 Android Studio, or:

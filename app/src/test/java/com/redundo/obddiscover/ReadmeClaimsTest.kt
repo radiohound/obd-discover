@@ -239,6 +239,25 @@ class ReadmeClaimsTest {
         assertTrue("the manifest must say why", m.contains("vPIC"))
     }
 
+
+    /** The install instructions must match the manifest and the build config. */
+    @Test fun installSectionIsAccurate() {
+        claims("## Installing")
+        claims("adb install -r app/build/outputs/apk/debug/app-debug.apk")
+        claims("Android 8.0 or later (API 26)")
+        val m = File(root, "app/src/main/AndroidManifest.xml").readText()
+        // Every permission the README explains must actually be requested, and the
+        // location claim must stay true: nothing in the app may read a location.
+        for (p in listOf("BLUETOOTH_SCAN", "ACCESS_FINE_LOCATION", "POST_NOTIFICATIONS")) {
+            assertTrue("$p must be in the manifest", m.contains(p))
+        }
+        val src = File(root, "app/src/main/java/com/redundo/obddiscover").walkTopDown()
+            .filter { it.extension == "kt" }.joinToString("\n") { it.readText() }
+        assertTrue("the README says the app never reads your location",
+            !src.contains("LocationManager") && !src.contains("getLastKnownLocation") &&
+                !src.contains("FusedLocation"))
+    }
+
     /** The documented build command has to exist. It did not, for the repo's whole life. */
     @Test fun theDocumentedBuildCommandExists() {
         claims("./gradlew assembleDebug")
