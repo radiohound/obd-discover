@@ -76,6 +76,25 @@ class ReadmeClaimsTest {
         claims("Four GATT profiles")
     }
 
+    /**
+     * The README must say a BLE adapter is needed, before the reader has to go looking.
+     * The opening used to read "from an Android phone, with no laptop", which is true and
+     * reads as phone-only -- the hardware requirement was 200 lines down.
+     */
+    @Test fun theAdapterRequirementIsInTheOpening() {
+        val opening = readme.take(900)
+        assertTrue("the opening must say an adapter is needed",
+            opening.contains("adapter"))
+        assertTrue("the opening must say it has to be BLE",
+            opening.contains("Bluetooth Low Energy") || opening.contains("BLE"))
+        assertTrue("the opening must name the verified adapter",
+            opening.contains("Vgate iCar Pro BLE 4.0"))
+        // Only one adapter has actually been run against this app. If a second is ever
+        // marked verified here, it should be because someone ran it.
+        assertEquals("exactly one adapter may be marked verified", 1,
+            Regex("Verified on this app").findAll(readme).count())
+    }
+
     @Test fun nineGenericAnchors() {
         assertEquals(9, Obd.ANCHORS.size)
         claims("nine generic anchors")

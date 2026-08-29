@@ -1,6 +1,13 @@
 # OBD Discover
 
-Map an unlisted vehicle's enhanced OBD-II data from an Android phone, with no laptop.
+Map an unlisted vehicle's enhanced OBD-II data from an Android phone and a BLE OBD-II
+adapter — no laptop.
+
+**You need two things:** an Android phone (8.0 or later) and a **Bluetooth Low Energy
+ELM327 adapter** plugged into the car's OBD-II port. The adapter is not optional and it
+must be BLE — a Bluetooth Classic or Wi-Fi dongle cannot work with this app. If you are
+buying one, get a **[Vgate iCar Pro BLE 4.0](#hardware)** — it is the only adapter this app has
+been tested on, and it works out of the box. See [Hardware](#hardware).
 
 Most OBD tools can only read parameters somebody already wrote down for your car. This one
 finds them: it probes the vehicle's Mode-22 address space — or, on a pre-CAN car, its Mode-01,
@@ -220,11 +227,31 @@ says so at the top, in those words. Use the scrubbed export for anything you pos
 
 ## Hardware
 
-Any BLE ELM327 adapter. Four GATT profiles are tried (`18F0/2AF0/2AF1`, `FFF0`, `FFE0`,
-Nordic UART), which covers most clones. Devices whose names are unfamiliar can be selected by
-hand from the scan list — the name list ranks candidates, it does not gate them.
+### The adapter
 
-Verified on a Vgate iCar Pro BLE 4.0.
+**Exactly one adapter has ever been tested successfully with this app: the Vgate iCar Pro
+BLE 4.0.** Everything else in the table below is reasoning, not experience — a ✅ means
+somebody ran it, a 🟡 means nobody has. At least one other BLE adapter was tried and could
+never be made to work, with this app or with obd-gauge-cluster on a laptop, so "it is BLE"
+is not by itself a guarantee.
+
+**It must be Bluetooth Low Energy.** This app talks to the adapter over BLE GATT. A
+Bluetooth Classic / SPP adapter, or a Wi-Fi one, cannot be made to work — not a
+configuration problem, a different radio protocol.
+
+| Adapter | Status |
+| :-- | :-- |
+| **Vgate iCar Pro BLE 4.0** | ✅ **Verified on this app.** Works out of the box, no configuration. Get this one if you are buying. |
+| Vgate vLinker MS | 🟡 Validated by [obd-gauge-cluster](https://github.com/cheeseprince/obd-gauge-cluster), not bench-tested here. Ships in Classic/MFi mode and has to be switched to BLE first. |
+| Generic CC2541 clones (`FFE0` / `FFF0`) | 🟡 Untested. The profiles are implemented, so they *should* work — but that is inference, and one BLE adapter has already disproved it. |
+| Bluetooth Classic / SPP adapters | ❌ Cannot work. Wrong radio protocol. |
+| Wi-Fi adapters (most ELM327 clones) | ❌ Cannot work. This app has no Wi-Fi transport. |
+
+Four GATT profiles are tried (`18F0/2AF0/2AF1`, `FFF0`, `FFE0`, Nordic UART), which covers
+most clones. Devices whose names are unfamiliar can be selected by hand from the scan list —
+the name list ranks candidates, it does not gate them.
+
+### The phone
 
 An Android phone running 8.0 or later (API 26). It does not have to be your daily phone, and
 there is a reason to prefer that it isn't: a scan wants to sit in the car with the ignition on,
