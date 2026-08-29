@@ -1,0 +1,60 @@
+name: CI
+
+# Runs on every push to main and every pull request. There is nothing to
+# configure and no secret involved: app/build.gradle.kts already falls back to
+# an unsigned release when keystore.properties is absent, so CI never needs the
+# keystore -- which is the reason this workflow can exist at all without moving
+# a signing key somewhere it should not be.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Read-only by default. Nothing here publishes, so nothing here needs write.
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Unit tests + debug build
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to a commit SHA rather than a tag: a tag can be
+      # repointed at different code by whoever owns the action, and this
+      # workflow builds an APK that people install.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c  # v6.0.0
+        with:
+          distribution: temurin
+          # Matches kotlinOptions { jvmTarget = "17" } in app/build.gradle.kts.
+          # If that moves, this has to move with it.
+          java-version: '17'
+
+      # Reads the wrapper (Gradle 8.9) and caches ~/.gradle between runs.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb  # v6.3.0
+
+      # The 128 assertions across ReplyShapeTest, ReadmeClaimsTest and
+      # SignalSetTest. These are the ones worth running on every change: they
+      # cover reply-shape parsing and the SignalSet contract, which is where a
+      # protocol bug would hide.
+      - name: Unit tests
+        run: ./gradlew --no-daemon test
+
+      # Compiling is a separate assertion from testing: a test suite can pass
+      # while the app itself fails to build, since unit tests do not link the
+      # Android sources.
+      - name: Debug build
+        run: ./gradlew --no-daemon assembleDebug
+
+      # Only on failure -- a green run's reports say nothing you did not
+      # already learn from it being green.
+      - name: Test reports (on failure)
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: test-reports
+          path: app/build/reports/tests/
+          retention-days: 7
