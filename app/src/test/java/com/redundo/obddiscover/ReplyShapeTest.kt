@@ -796,3 +796,49 @@ class NoPayloadsTest {
             src.contains("out.put(\"detail\", it)"))
     }
 }
+
+/**
+ * Two failures from one Ioniq 5 session, both pinned.
+ *
+ * The prefill URL: GitHub rejects an oversized one with "Whoops, something went wrong!",
+ * which reads like an outage rather than a request that was too big. Measured on the
+ * device -- 4,642 characters worked, 7,769 did not. `detail` is what pushes a record over,
+ * and it was added the same morning the "records fit with room to spare" claim was made.
+ *
+ * The identity: a 2025 Ioniq 5 has no engine ECU, so every VIN attempt before discovery
+ * went to an address that does not exist on that car. Discover recovers the VIN once it
+ * knows the live headers, and used to keep only its first three characters -- so the
+ * vehicle that most needs the fallback produced a record with no make, model or pattern.
+ */
+class LateIdentityAndUrlBudgetTest {
+    private fun src(n: String) =
+        java.io.File("src/main/java/com/redundo/obddiscover/$n").readText()
+
+    @Test fun theRecoveredVinIsKeptWhole() {
+        assertTrue("Discover must keep the recovered VIN",
+            src("Discover.kt").contains("recoveredVin = Discover.vinFrom(raw)"))
+        assertTrue("Capture must build identity from it",
+            src("Capture.kt").contains("info = VehicleId.identify(vin)") &&
+                src("Capture.kt").contains("discover.recoveredVin.isNotEmpty()"))
+    }
+
+    @Test fun theIssueUrlHasABudget() {
+        val e = src("Export.kt")
+        assertTrue("a budget must exist", e.contains("URL_BUDGET"))
+        // Below what failed (7,769) and above what worked (4,642).
+        val n = Regex("URL_BUDGET = (\\d+)").find(e)!!.groupValues[1].toInt()
+        assertTrue("budget $n must sit between the measured pass and fail", n in 4643..7768)
+        assertTrue("oversize must drop detail, not the record",
+            e.contains("trimmed.remove(\"detail\")"))
+        assertTrue("and must say where the full list is",
+            e.contains("too long to prefill here"))
+    }
+
+    @Test fun theFileKeepsWhatTheIssueDrops() {
+        // The trimming happens when BUILDING THE URL, never when writing the file.
+        val e = src("Export.kt")
+        val write = e.indexOf("f.writeText")
+        val trim = e.indexOf("trimmed.remove")
+        assertTrue("the record is written before any trimming", write in 1 until trim)
+    }
+}

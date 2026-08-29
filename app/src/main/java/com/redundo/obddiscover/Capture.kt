@@ -700,6 +700,21 @@ class CaptureRunner(
                     if (mk.isEmpty() || knownReqs.isNotEmpty()) emptyList()
                     else VehicleId.hintedPairs(mk, also = sib)
                 discover.start {
+                    // IDENTITY RECOVERED LATE IS STILL IDENTITY. When the VIN is unreadable
+                    // at the addresses CaptureRunner can guess, Discover finds it once it
+                    // knows which headers are live -- a 2025 Ioniq 5 has no engine ECU, so
+                    // every pre-discovery attempt went to an address that does not exist.
+                    // Too late for this run's hints; not too late for the record, which is
+                    // written afterwards. Without this the car that most needs the fallback
+                    // is the one whose contribution comes out as vehicle-MODEL.json with no
+                    // make, model, year or pattern.
+                    if (info == null && discover.recoveredVin.isNotEmpty()) {
+                        vin = discover.recoveredVin
+                        wmi = vin.take(3)
+                        info = VehicleId.identify(vin)
+                        ble.log("identity recovered after discovery: ${info?.make} " +
+                            "${info?.year ?: ""}".trim())
+                    }
                     val plan = discover.logPlan
                     // A stopped run does not roll on into a drive. The callback fires either
                     // way, so stopping DURING THE SWEEP -- once some blocks had yielded DIDs

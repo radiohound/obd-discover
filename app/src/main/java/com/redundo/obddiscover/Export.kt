@@ -528,6 +528,9 @@ object Export {
     /** Where contributed records go. One repo, so a record cannot be aimed elsewhere. */
     private const val CONTRIB_REPO = "https://github.com/radiohound/obd-discover"
 
+    /** Longest prefill URL GitHub will accept. 4,642 worked; 7,769 did not. */
+    private const val URL_BUDGET = 6000
+
     /**
      * A prefilled "new issue" on the project, carrying the record in the body.
      *
@@ -553,7 +556,33 @@ object Export {
             append("_No VIN serial is included: the record carries VIN positions 1-8 only._\n")
         }
         fun enc(v: String) = java.net.URLEncoder.encode(v, "UTF-8").replace("+", "%20")
-        return "$CONTRIB_REPO/issues/new?labels=vehicle&title=${enc(title)}&body=${enc(body)}"
+        fun url(b: String) =
+            "$CONTRIB_REPO/issues/new?labels=vehicle&title=${enc(title)}&body=${enc(b)}"
+
+        // GITHUB REJECTS AN OVERSIZED PREFILL, and not with a 404 -- it answers "Whoops,
+        // something went wrong!", which reads like an outage rather than a request that was
+        // too big. Measured: a 4,642-character URL works and a 7,769-character one does
+        // not. `detail` is what pushes a record over, so when the URL will not fit it is
+        // dropped from the ISSUE only. The file on the phone keeps everything, and the
+        // body says what was left out and where to find it.
+        val full = url(body)
+        if (full.length <= URL_BUDGET) return full
+        val trimmed = JSONObject(record.readText())
+        val ids = (0 until (trimmed.optJSONArray("detail")?.length() ?: 0)).sumOf {
+            trimmed.optJSONArray("detail")!!.optJSONObject(it)
+                ?.optJSONArray("identifiers")?.length() ?: 0
+        }
+        trimmed.remove("detail")
+        val short = buildString {
+            append("Adding a vehicle to `vehicles/`, captured with OBD Discover.\n\n")
+            if (model.isEmpty())
+                append("**The model did not resolve** — please help name it before merge.\n\n")
+            append("```json\n").append(trimmed.toString(2)).append("\n```\n\n")
+            append("_The full identifier list ($ids of them) was too long to prefill here. ")
+            append("It is in `${record.name}` on the phone — attach that file to this issue._\n")
+            append("_No VIN serial is included: the record carries VIN positions 1-8 only._\n")
+        }
+        return url(short)
     }
 
     /**

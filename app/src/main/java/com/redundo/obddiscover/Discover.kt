@@ -618,6 +618,9 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
     var hintedExt: Boolean = false
 
     /** VIN identity CaptureRunner already established, so it is not read a second time. */
+    /** Full VIN found by the late recovery, or "" -- memory only, never written. */
+    var recoveredVin: String = ""
+
     /** Supported Mode-01 PIDs, scanned by Capture before discovery. */
     var stdPidsIn: List<String> = emptyList()
     var wmiIn: String = ""
@@ -738,6 +741,12 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                             probes++
                             if (!ok || Discover.vinFrom(raw).isEmpty()) continue
                             wmi = Discover.wmiFrom(raw); vinKey = Discover.vinKey(raw)
+                            // Keep the VIN itself, not just its first three characters.
+                            // It is too late to steer THIS run's hints, but a contributed
+                            // record is written long afterwards, and without this the car
+                            // that most needs the fallback is the one whose record comes
+                            // out unnamed -- make, model, year and pattern all missing.
+                            recoveredVin = Discover.vinFrom(raw)
                             ble.log("VIN recovered on $h via $req -> WMI $wmi")
                             break
                         }
