@@ -436,3 +436,53 @@ class WmiTableTest {
         assertEquals("Ford", t.optString("1FT"))
     }
 }
+
+/**
+ * The project's own vehicle database: vehicles/<Make>/<Model>.json, compiled by
+ * tools/merge_vehicles.py into one asset at build time.
+ *
+ * It exists because the public sources cannot supply this. Brute-forcing VIN prefixes
+ * against vPIC names a model for 31% of WMIs (measured, 14 of a random 45), and DecodeWMI
+ * is silent for JTM, WBA, KM8 and JF2 -- four of the six cars this project has captures
+ * for. A scan supplies the model AND the locations, from the car.
+ */
+class VehicleDbTest {
+    private fun asset() = org.json.JSONObject(
+        java.io.File("src/main/assets/vin_patterns.json").readText())
+
+    @Test fun mergeProducedTheAsset() {
+        val a = asset()
+        assertTrue("merge must emit both sections", a.has("patterns") && a.has("locations"))
+    }
+
+    @Test fun bmwCarriesTheBlocksTheCommunityListLacks() {
+        // 2258xx holds 227 identifiers on the F10 and 2244xx the oil row; neither is in
+        // OBDb's BMW list. Losing them is the exact regression this database prevents.
+        val blk = asset().getJSONObject("locations").getJSONObject("BMW|5 Series")
+            .getJSONArray("blk").let { a -> (0 until a.length()).map { a.getString(it) } }
+        for (b in listOf("2258", "2244", "2217", "224A")) {
+            assertTrue("BMW 5 Series must carry $b", b in blk)
+        }
+    }
+
+    @Test fun noRecordCarriesMoreThanEightVinCharacters() {
+        // Positions 9-17 include the serial. The merge refuses to write when one does,
+        // so reaching here with a longer key would mean the guard was removed.
+        val p = asset().getJSONObject("patterns")
+        for (k in p.keys()) assertTrue("$k is longer than VIN positions 1-8", k.length <= 8)
+    }
+
+    @Test fun everyRecordFileIsValidAndSafe() {
+        val dir = java.io.File("../vehicles")
+        val files = dir.walkTopDown().filter { it.extension == "json" }.toList()
+        assertTrue("expected seeded records", files.isNotEmpty())
+        for (f in files) {
+            val r = org.json.JSONObject(f.readText())
+            assertTrue("${f.name} needs a make", r.optString("make").isNotEmpty())
+            assertTrue("${f.name} must not carry a VIN", !r.has("vin") && !r.has("vin_key"))
+            assertTrue("${f.name} must not carry payloads",
+                !r.has("mode09") && !r.has("mode21"))
+            assertTrue("${f.name} pattern too long", r.optString("vin_pattern").length <= 8)
+        }
+    }
+}

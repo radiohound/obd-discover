@@ -1,0 +1,24 @@
+{
+  "make": "Subaru",
+  "model": "Forester",
+  "addressing": "11-bit",
+  "headers": [
+    "7A2",
+    "7DF",
+    "7E0",
+    "7E1"
+  ],
+  "blocks": [
+    "2200",
+    "2201",
+    "2202",
+    "2210",
+    "2211",
+    "2212",
+    "2220",
+    "2230",
+    "22F1"
+  ],
+  "source": "obd-discover, 4 on-car capture(s) 2026-08",
+  "notes": "7A2 answered on one run; it is documented by OBDb but outside the app's default sweep."
+}

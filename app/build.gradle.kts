@@ -62,11 +62,35 @@ android {
     }
 }
 
+// Compiles vehicles/**/*.json into one shipped asset.
+//
+// A BUILD STEP RATHER THAN A COMMITTED FILE, for two reasons. One file per vehicle means
+// two people adding two cars touch disjoint paths and their pull requests never conflict;
+// a shared blob would conflict on every PR. And the merge is where a record is validated,
+// so a file carrying more than VIN positions 1-8 -- positions 9-17 include the serial --
+// fails the build instead of reaching an APK.
+//
+// The asset is the identifying subset, not the full map: 210 bytes per vehicle against
+// 14 KB for the whole record, so the full maps stay in the repo for humans to read.
+val mergeVehicles = tasks.register<Exec>("mergeVehicles") {
+    val out = layout.projectDirectory.file("src/main/assets/vin_patterns.json")
+    inputs.dir(rootProject.file("vehicles"))
+    inputs.file(rootProject.file("tools/merge_vehicles.py"))
+    outputs.file(out)
+    commandLine("python3", rootProject.file("tools/merge_vehicles.py").absolutePath,
+                out.asFile.absolutePath)
+}
+
+// Every variant's asset merge waits on it, so a plain `assembleDebug` regenerates it.
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }
+    .configureEach { dependsOn(mergeVehicles) }
+
 // ReadmeClaimsTest reads these at runtime, so Gradle has to know they are test inputs.
 // Without this the task stays UP-TO-DATE when only the README changes -- the test passes on
 // a stale result and the whole point of it is lost. Verified by breaking a number on purpose
 // and watching it NOT fail.
 tasks.withType<Test>().configureEach {
+    dependsOn(mergeVehicles)
     inputs.file(rootProject.file("README.md"))
     inputs.dir(layout.projectDirectory.dir("src/main/assets"))
     inputs.file(layout.projectDirectory.file("build.gradle.kts"))
