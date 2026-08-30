@@ -23,6 +23,11 @@ follows `catalog.ANCHORS`, and `Triage` mirrors `correlate.py`'s interpretations
 set and thresholds — deliberately, so this app's advisory reading cannot quietly disagree
 with the authoritative one.
 
+The Ford Mode-22 decodes in `vehicles/Ford/F-150.json` -- 221E1C transmission fluid
+temperature and 221E60 current gear -- come from that project's Super Duty 6.7 profile,
+`src/vehicles/ford_sd_67.cpp`. This app found the identifiers answering on a different
+truck; what the profile supplied is what they mean.
+
 The F10 Mode-22 decodes recorded in `vehicles/BMW/5-Series.json` also appear in that
 project's curated profile, `src/vehicles/bmw_f10_535i.cpp`, and the two agree. They were
 worked out on the car rather than taken from a list -- 2258BA in particular is named in

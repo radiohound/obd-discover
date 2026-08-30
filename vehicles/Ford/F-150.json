@@ -115,5 +115,28 @@
     "probes": 9904,
     "blocks": 24
   },
-  "source": "obd-discover, on-car capture 2026-08-29"
+  "source": "obd-discover, on-car capture 2026-08-29",
+  "signals": [
+    {
+      "did": "221E1C",
+      "header": "7DF",
+      "name": "transmission fluid temperature",
+      "unit": "degC",
+      "scale": 0.0625,
+      "confidence": "inferred",
+      "verified": "signed int16, raw/16. Documented on a 2021 F-350 Super Duty and present here on a 2026 F-150 -- a different engine, fuel and platform, so the DID appears to be Ford-wide rather than Super-Duty-specific. Not measured on this truck; a drive would confirm it by warming with the transmission.",
+      "source": "decode from obd-gauge-cluster's Ford Super Duty 6.7 profile (src/vehicles/ford_sd_67.cpp, MIT), which reads them on 7E1; this app's sweep found them answering the 7DF functional broadcast on a 2.7L gasoline F-150"
+    },
+    {
+      "did": "221E60",
+      "header": "7DF",
+      "name": "current gear",
+      "unit": "",
+      "scale": 1,
+      "confidence": "inferred",
+      "verified": "0x01-0x0A on a 10-speed. Same cross-platform note as 221E1C. Easy to confirm on a drive: the value should step with the shifts and hold at a plateau.",
+      "source": "decode from obd-gauge-cluster's Ford Super Duty 6.7 profile (src/vehicles/ford_sd_67.cpp, MIT), which reads them on 7E1; this app's sweep found them answering the 7DF functional broadcast on a 2.7L gasoline F-150"
+    }
+  ],
+  "notes": "Torque comes from LEGISLATED PIDs on this truck -- 0162 actual and 0163 reference -- where the BMW needed enhanced DIDs 2258BA and 224517 for the same pair. Compared against obd-gauge-cluster's Super Duty 6.7 profile, 15 of its 23 Mode-01 PIDs are supported here; the eight that are not (0110 MAF, 0178 EGT, 0183 NOx, 0187 boost, 016D rail pressure, 017A DPF differential, 019B DEF, 015C oil temperature) are diesel aftertreatment and absent from a gasoline engine, which is what they should be."
 }
