@@ -325,3 +325,80 @@ class HeaderExclusionTest {
         assertTrue(VehicleId.excludedHeaders("Rivian").isEmpty())
     }
 }
+
+/**
+ * The measured identifier lists that now ship (#D11).
+ *
+ * These are the strongest data this project holds -- what a real car of that make and model
+ * actually answered -- and they are what lets a scan confirm in 1.7 minutes what a blind
+ * sweep takes 24 to rediscover. VehicleId reads them from an Android asset, which is empty
+ * off-device, so what is asserted here is the shipped file itself.
+ */
+class ShippedIdentifierListTest {
+
+    private val root: java.io.File =
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile }
+    private val asset = org.json.JSONObject(
+        java.io.File(root, "app/src/main/assets/vin_patterns.json").readText())
+    private val locations = asset.getJSONObject("locations")
+
+    private fun packedLists(): List<Pair<String, String>> {
+        val out = ArrayList<Pair<String, String>>()
+        for (k in locations.keys()) {
+            val ids = locations.getJSONObject(k).optJSONObject("ids") ?: continue
+            for (h in ids.keys()) out.add(h to ids.getString(h))
+        }
+        return out
+    }
+
+    /** They are actually there, and there are enough of them to matter. */
+    @Test fun theAssetCarriesTheMeasuredIdentifiers() {
+        val n = packedLists().sumOf { it.second.length / 4 }
+        assertTrue("expected thousands of measured identifiers, got $n", n > 3000)
+    }
+
+    /**
+     * PAYLOADS MUST NOT HIDE HERE. What a vehicle returned is never committed and never
+     * shipped; only which identifiers it answered. Every entry has to decode to exactly one
+     * six-character Mode-22 request, which a payload of any length cannot.
+     */
+    @Test fun nothingButModeTwentyTwoIdentifiersCanBeInThere() {
+        for ((hdr, packed) in packedLists()) {
+            assertEquals("$hdr is not a whole number of identifiers", 0, packed.length % 4)
+            assertTrue("$hdr is not hex: $packed", packed.all { it in "0123456789ABCDEF" })
+            var i = 0
+            while (i + 4 <= packed.length) {
+                val req = "22" + packed.substring(i, i + 4)
+                assertEquals("bad request $req", 6, req.length)
+                i += 4
+            }
+        }
+    }
+
+    /** Every header a list is filed under must be a header the app can actually select. */
+    @Test fun theHeadersAreAddressable() {
+        for ((hdr, _) in packedLists()) {
+            assertTrue("$hdr is neither 11-bit nor 29-bit", hdr.length == 3 || hdr.length == 6)
+            assertTrue("$hdr is not hex", hdr.all { it in "0123456789ABCDEF" })
+        }
+    }
+
+    /** A Mode-22 silent vehicle contributes no identifiers, and must not invent any. */
+    @Test fun aSilentVehicleShipsNone() {
+        val hl = locations.optJSONObject("Toyota|Highlander")
+        assertTrue("the Highlander answers no Mode 22 and must ship no identifier list",
+            hl == null || hl.optJSONObject("ids") == null)
+    }
+
+    /**
+     * A canary, not a limit. Around 200 vehicles this reaches ~516 KB and fetching a matched
+     * record at run time becomes the better trade. This fails long before that, so the
+     * decision gets made deliberately rather than discovered in an APK size report.
+     */
+    @Test fun theAssetIsStillSmall() {
+        val bytes = java.io.File(root, "app/src/main/assets/vin_patterns.json").length()
+        assertTrue("vin_patterns.json is $bytes bytes; revisit shipping vs fetching",
+            bytes < 200_000)
+    }
+}

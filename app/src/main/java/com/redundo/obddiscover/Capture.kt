@@ -385,7 +385,15 @@ class CaptureRunner(
             val sib = info?.vin?.let { VehicleId.siblings(it) } ?: emptyList()
             // Looked up once: the screen reports this count and phase 0 sends exactly these.
             // Computing it twice invited the two to disagree.
-            val knownReqs = if (mk.isEmpty()) emptyList() else VehicleId.supportedFor(mk)
+            // OURS FIRST, THEN THE COMMUNITY'S. contributedRequests is what a real car of
+            // this make and model actually answered; supportedFor is what OBDb documents for
+            // the make. Measured beats documented, and asking the measured set first is what
+            // turns a 24-minute wait for a drive-log plan into a 1.7-minute one on a car this
+            // project has mapped before. Neither shortens the sweep that follows -- see
+            // VehicleId.contributedRequests: order, never bounds.
+            val knownReqs = if (mk.isEmpty()) emptyList() else
+                (VehicleId.contributedRequests(mk, modelClean) + VehicleId.supportedFor(mk))
+                    .distinct()
             hintNote = if (mk.isEmpty()) "" else {
                 val blocks = VehicleId.blockPrefixes(mk, also = sib)
                 val hdrs = VehicleId.headers(mk, also = sib)

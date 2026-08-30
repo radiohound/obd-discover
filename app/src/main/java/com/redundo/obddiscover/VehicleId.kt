@@ -297,6 +297,42 @@ object VehicleId {
     }
 
     /**
+     * Every Mode-22 identifier a real car of this make and model actually answered.
+     *
+     * ASK WHAT WE KNOW BEFORE SWEEPING FOR IT. A blind sweep asks 256 identifiers per block
+     * to find roughly 25, and runs that way even on a car this project has already mapped.
+     * Confirming the measured list instead is 572 requests on a BMW F10 against 5,888 for
+     * the sweep and 3,584 for the recon that precedes it -- 1.7 minutes against 24, at the
+     * rate real runs achieve. The operator has a drive-log plan before the sweep starts.
+     *
+     * ORDER, NEVER BOUNDS. Nothing here entitles the sweep to skip anything. A record says
+     * what to ask first; it never says what to leave out, because absence from a record is
+     * weak evidence and this project has already been caught by it -- a BMW F10 answered on
+     * three blocks the community list did not contain. The sweep still runs in full.
+     *
+     * Shipped packed: suffixes only, concatenated, grouped by header, the 22 implied. All
+     * six current records are 15.5 KB. See tools/merge_vehicles.py.
+     */
+    fun contributedRequests(make: String, model: String = ""): List<Pair<String, String>> {
+        val loc = contributed?.optJSONObject("locations") ?: return emptyList()
+        val out = LinkedHashSet<Pair<String, String>>()
+        for (k in loc.keys()) {
+            if (k.substringBefore('|') != make) continue
+            if (model.isNotEmpty() && k.contains('|') && k.substringAfter('|') != model) continue
+            val ids = loc.optJSONObject(k)?.optJSONObject("ids") ?: continue
+            for (hdr in ids.keys()) {
+                val packed = ids.optString(hdr)
+                var i = 0
+                while (i + 4 <= packed.length) {
+                    out.add(hdr.uppercase() to "22" + packed.substring(i, i + 4))
+                    i += 4
+                }
+            }
+        }
+        return out.toList()
+    }
+
+    /**
      * Locations measured on a real car of this make (and model, when known).
      *
      * These outrank the community lists because they were observed rather than documented.
