@@ -676,7 +676,8 @@ class RecordRichnessTest {
      * at correlate.py's own thresholds, mirrored in Triage as MIN_R_STRONG and MIN_SAMPLES.
      */
     @Test fun confidenceUsesTheDefinedLadder() {
-        val levels = setOf("ground-truth", "correlated", "weak", "inferred", "guess")
+        val levels = setOf("ground-truth", "correlated", "weak", "inferred",
+            "community-published", "guess")
         for ((f, r) in records()) {
             val sigs = r.optJSONArray("signals") ?: continue
             for (i in 0 until sigs.length()) {

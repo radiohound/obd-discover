@@ -86,6 +86,7 @@ how well it is known, on a ladder the project already has thresholds for:
 | `correlated` | `obd_scan correlate` scored `r >= 0.90` against a known anchor over at least 30 samples. Record `against`, `r` and `samples` |
 | `weak` | `r >= 0.60`, or fewer than 30 samples. A lead, not a finding |
 | `inferred` | identified by reasoning rather than measurement — a value that sits where physics says it should. Say what the reasoning was |
+| `community-published` | named in a third-party map with no stated derivation. Below `inferred`: a name somebody wrote down, not a measurement |
 | `guess` | anything else, and it should say so |
 
 The thresholds are `correlate.py`'s own, mirrored in `Triage.kt` as `MIN_R_STRONG` (0.90),
@@ -97,6 +98,28 @@ anchor are claims *about* the data, not the data — and a delta is shareable wh
 absolute is not. "Rose 41 over a 24.5-minute drive, matching distance travelled" proves an
 odometer and tells nobody your mileage. Run `correlate` on your own machine, keep the RAW
 export, publish the conclusion.
+
+### Citing a community map
+
+A third-party DID map may be someone's reverse-engineering of a manufacturer's own
+diagnostic tables. That raises two problems and they have the same answer.
+
+**Licensing.** This repository is MIT. A translated label table extracted from a
+manufacturer's diagnostic software is not something the publisher could license, so it is
+not something this project can relicense. Bulk-importing one would be republishing text
+nobody in the chain owns.
+
+**Provenance.** An anonymous table with no stated derivation cannot be audited. It may be
+accurate — and may still be someone else's property.
+
+So the rule here is: **import the facts you verified, not the table.** That a given
+identifier reads coolant temperature as `raw × 0.75 − 48` is a fact about a machine,
+established by measurement on a car you have. Facts about how a device behaves are not
+anyone's property; a table of translated labels might be. Record the rows your own logs
+support, cite where you first saw the claim, and leave the rest where you found it.
+
+A cited row says all three things: what the map claimed, what this project measured, and
+that the two agree.
 
 Verification is by **reproduction, not audit**: someone with the same model drives, gets the
 same result, and the signal is confirmed on two cars. That is stronger evidence than one

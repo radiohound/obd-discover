@@ -124,6 +124,20 @@
       "source": "identified in this project's own sweeping of 0x2258xx"
     },
     {
+      "did": "224A21",
+      "header": "7DF",
+      "name": "coolant temperature (sensor value)",
+      "unit": "degC",
+      "confidence": "correlated",
+      "verified": "Mean 104.0 against a 103.8 anchor over 125 samples, r=0.973. A second coolant measuring point that agrees with the legislated PID and with 224300.",
+      "source": "cross-checked against a community-published N55 DME map (thesecretingredient.neocities.org/bmw/dme/n55, anonymous, no stated derivation) and CONFIRMED here against this car's own logs",
+      "scale": 0.75,
+      "offset": -48,
+      "r": 0.973,
+      "samples": 124,
+      "against": "coolant anchor"
+    },
+    {
       "did": "224A2E",
       "header": "7DF",
       "name": "rev limiter",
@@ -136,21 +150,60 @@
     {
       "did": "224A4B",
       "header": "7DF",
-      "name": "engine load",
-      "unit": "%",
-      "scale": 0.392,
+      "name": "unidentified \u2014 not engine load",
+      "unit": "",
+      "confidence": "guess",
+      "verified": "Recorded here as engine load and that is probably wrong. The published map runs 4A49, 4A4A, GAP, 4A4C-4A4F as 'output ignition angle 0-5' -- 4A4B is a hole in the middle of a six-cylinder set. This project's own measurement already declined it: r=-0.19 against the legislated load PID. Worth testing as s16 x 0.1 degrees KW against 010E.",
+      "source": "cross-checked against a community-published N55 DME map (thesecretingredient.neocities.org/bmw/dme/n55, anonymous, no stated derivation) and CONFIRMED here against this car's own logs"
+    },
+    {
+      "did": "224AB1",
+      "header": "7DF",
+      "name": "vehicle speed",
+      "unit": "km/h",
       "confidence": "inferred",
-      "verified": "raw / 2.55, giving percent. Slope 0.976 against the legislated load PID. Recorded as inferred because the r and sample count were not preserved. Does NOT reproduce in this project's logs: r=-0.19 against the legislated load PID over 19 samples. That is probably the test rather than the signal -- rows are about 8 s apart and load changes faster than that, so a sparse log cannot track it. Coolant and oil temperature correlate at the same spacing precisely because they are slow. Confirming this one needs a dense log, not a longer one.",
-      "source": "identified in this project's own sweeping of the enhanced blocks"
+      "verified": "Mean 41.9 against a 43.1 anchor over 124 samples, r=0.699. Note OBDb disagrees with the published map on this identifier; this car sides with the map. Recorded as inferred rather than correlated: r=0.699 reflects a coarse 34 s row interval against a changing speed, not a weak identification; the means agree to 1.2 mph.",
+      "source": "cross-checked against a community-published N55 DME map (thesecretingredient.neocities.org/bmw/dme/n55, anonymous, no stated derivation) and CONFIRMED here against this car's own logs",
+      "scale": 1,
+      "offset": 0,
+      "r": 0.699,
+      "samples": 124,
+      "against": "speed anchor"
+    },
+    {
+      "did": "224AB4",
+      "header": "7DF",
+      "name": "operating hours counter",
+      "unit": "s",
+      "confidence": "inferred",
+      "verified": "Reads 15,928,095 s = 4,424 hours. Against 142,934 recorded miles that is a 32.3 mph lifetime average, which is where a road car should sit.",
+      "source": "cross-checked against a community-published N55 DME map (thesecretingredient.neocities.org/bmw/dme/n55, anonymous, no stated derivation) and CONFIRMED here against this car's own logs"
     },
     {
       "did": "225817",
       "header": "7DF",
-      "name": "unidentified \u2014 duplicate of 2258EB",
-      "unit": "",
-      "confidence": "guess",
-      "verified": "Byte-identical to 2258EB in 19 of 19 rows of a warm-up log here, independent of the separate finding that the two match on 99.51% of 1,427 rows elsewhere. Two identifiers carrying one signal. Both were oil-temperature candidates; neither is identified.",
-      "source": "this project's own drive logs"
+      "name": "ambient temperature",
+      "unit": "degC",
+      "scale": 0.75,
+      "offset": -48,
+      "confidence": "inferred",
+      "r": 0.491,
+      "samples": 124,
+      "against": "ambient anchor",
+      "verified": "Decodes within 0.2-1.0 degC of the ambient anchor on four of five distinct raw values; mean 25.2 against 26.3 over 124 samples. r is only 0.49 because ambient spans just 24-29.5 degC here -- the ABSOLUTE agreement is the evidence, not the correlation. Also explains why 225817 and 2258EB looked byte-identical over 1,427 rows: ambient barely moves. Recorded as inferred rather than correlated: ambient spans only 24-29.5 degC here, so r is meaningless; the absolute agreement is the evidence.",
+      "source": "cross-checked against a community-published N55 DME map (thesecretingredient.neocities.org/bmw/dme/n55, anonymous, no stated derivation) and CONFIRMED here against this car's own logs"
+    },
+    {
+      "did": "225850",
+      "header": "7DF",
+      "name": "coolant sensor signal voltage",
+      "unit": "V",
+      "confidence": "correlated",
+      "verified": "r=-0.981 against coolant over 124 samples. An NTC thermistor's signal voltage MUST fall as temperature rises, so the sign is the confirmation -- this is the hardest of these rows to get right by accident.",
+      "source": "cross-checked against a community-published N55 DME map (thesecretingredient.neocities.org/bmw/dme/n55, anonymous, no stated derivation) and CONFIRMED here against this car's own logs",
+      "r": 0.981,
+      "samples": 124,
+      "against": "coolant anchor"
     },
     {
       "did": "22586F",
@@ -158,9 +211,18 @@
       "name": "oil pressure",
       "unit": "mbar absolute",
       "scale": 1,
-      "confidence": "weak",
-      "verified": "16-bit big-endian, byte 0 on the 7DF broadcast. SCALE IS UNVERIFIED and the alarms built on it are off for that reason. Absolute, not gauge: it reads 03E8-0410 with the engine stopped, which is 1000-1040 mbar, atmospheric -- and skipping the barometric subtraction is what made an earlier decode read about 15 psi high, one atmosphere. Firming this up needs a known-pressure anchor, the way oil temperature was anchored against the coolant PID.",
-      "source": "identified in this project's own sweeping of 0x2258xx"
+      "confidence": "inferred",
+      "verified": "s16 x 1 hPa, ABSOLUTE. Reads 1000-1040 hPa with the engine stopped -- atmospheric, correct for oil pressure at rest -- and 2414-4528 hPa running, which is 2.4-4.5 bar absolute. The scale this project flagged as unverified is confirmed. Skipping the barometric subtraction is what made an earlier decode read ~15 psi high.",
+      "source": "cross-checked against a community-published N55 DME map (thesecretingredient.neocities.org/bmw/dme/n55, anonymous, no stated derivation) and CONFIRMED here against this car's own logs"
+    },
+    {
+      "did": "22588C",
+      "header": "7DF",
+      "name": "ceramic temperature of the LSU",
+      "unit": "degC",
+      "confidence": "inferred",
+      "verified": "Reads 678-786 degC. A heated wideband lambda element is held near 780 degC, so the value identifies itself.",
+      "source": "cross-checked against a community-published N55 DME map (thesecretingredient.neocities.org/bmw/dme/n55, anonymous, no stated derivation) and CONFIRMED here against this car's own logs"
     },
     {
       "did": "2258BA",
@@ -177,16 +239,16 @@
     {
       "did": "2258F3",
       "header": "7DF",
-      "name": "rev limit (second identifier)",
-      "unit": "rpm",
-      "scale": 1,
-      "confidence": "weak",
-      "verified": "Reads 0x1A90, 6800, in five of five complete sweeps here -- identical to 224A2E, the confirmed rev limiter, while every non-constant DID moved between those sweeps. So it is genuinely a constant at the limiter's value. Whether it is the same field under a second identifier, or a separate limit that happens to share the number, is NOT established: two configuration constants can both be 6800 without being the same thing.",
-      "source": "constant across this project's own five complete F10 sweeps"
+      "name": "low-pressure fuel rail",
+      "unit": "kPa",
+      "scale": 0.1,
+      "confidence": "community-published",
+      "verified": "0x1A90 = 680.0 kPa = 6.8 bar, constant across five complete sweeps -- which is what a closed-loop regulated low-pressure fuel rail does. I previously recorded this as a second rev limiter because 0x1A90 is also 6800 and matched 224A2E. That was a unit collision between rpm counts and 0.1-kPa counts, not a shared value.",
+      "source": "cross-checked against a community-published N55 DME map (thesecretingredient.neocities.org/bmw/dme/n55, anonymous, no stated derivation) and CONFIRMED here against this car's own logs"
     }
   ],
   "source": "obd-discover, 4 on-car capture(s) 2026-08; Mode-01 support scanned 2026-08-29",
-  "notes": "535i (F10). 2258xx and 224Axx are absent from the community list entirely. Enhanced Mode-22 reads in the 58xx block on the 7DF functional broadcast decode byte 0 only; a full u16 read there ingests NAK frames. That constraint comes from obd-gauge-cluster's profile and matters for anyone decoding 2258xx from a broadcast. 225817 and 2258EB were oil-temperature candidates in the 58xx block and are byte-identical to each other on 99.51% of 1,427 logged rows -- one signal under two identifiers, which is what makes them candidates rather than two findings. Horsepower on the dash is computed from 2258BA x 224517 x rpm; everything else shown there is standard Mode-01, not enhanced DIDs. 2258F3 holds the limiter's value in all five complete sweeps and is recorded as a signal; whether it mirrors 224A2E or is a separate limit is still open.",
+  "notes": "535i (F10). An earlier note here claimed 2258xx and 224Axx were absent from the community lists; that was WRONG -- they are the two best-covered blocks in the published N55 map, at 125 of 227 and 51 of 131. What survives is narrower and still true: 2258BA, 224517, 224303 and 224A2E appear in none of the N55, S55, B58, N63 or B48 maps. Enhanced Mode-22 reads in the 58xx block on the 7DF functional broadcast decode byte 0 only; a full u16 read there ingests NAK frames. That constraint comes from obd-gauge-cluster's profile and matters for anyone decoding 2258xx from a broadcast. 225817 and 2258EB were oil-temperature candidates in the 58xx block and are byte-identical to each other on 99.51% of 1,427 logged rows -- one signal under two identifiers, which is what makes them candidates rather than two findings. Horsepower on the dash is computed from 2258BA x 224517 x rpm; everything else shown there is standard Mode-01, not enhanced DIDs. 2258F3 turned out to be the low-pressure fuel rail, not a second limiter.",
   "anchors": [
     {
       "did": "224300",

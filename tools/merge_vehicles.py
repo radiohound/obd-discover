@@ -81,7 +81,8 @@ def main(out_path):
         # act on it. A named identifier is different: it lets a scan say "odometer, km"
         # about a car nobody has scanned before, which is the one thing this project says
         # it cannot do. Six fields per signal, a handful per vehicle.
-        LEVELS = ("ground-truth", "correlated", "weak", "inferred", "guess")
+        LEVELS = ("ground-truth", "correlated", "weak", "inferred",
+                  "community-published", "guess")
         for sg in (r.get("signals") or []):
             did = (sg.get("did") or "").upper()
             if not did or not sg.get("name"): continue

@@ -55,6 +55,31 @@ If you scan a vehicle with this app, that is the project to send results to.
     SOFTWARE.
 
 
+## A community-published BMW N55 map — cited, not imported
+
+Ten signals in `vehicles/BMW/5-Series.json` carry `"source"` naming a community-published
+map of the N55 DME:
+
+  https://thesecretingredient.neocities.org/bmw/dme/n55
+
+It is an anonymous personal website with no about page, no citations and no stated
+derivation; the companion GitHub repository holds transport code and no PID data. The
+descriptions are machine-translated German with BMW's engineering abbreviations left intact
+— `° KW` for Kurbelwelle, `LWOT`, `Standverbraucher` half-translated — which suggests the
+underlying data originated in a manufacturer's own diagnostic tables rather than being
+authored by the publisher.
+
+**Nothing from it is bundled with this software and no part of that table is redistributed
+here.** What the records contain is the subset this project independently confirmed on its
+own vehicle: ten identifiers whose decoded values were checked against anchors logged from
+the car. Each says what was measured and cites where the claim was first seen.
+
+That distinction is deliberate. A mapping from an identifier to what it measures, verified
+by measurement, is a fact about a machine. A table of translated labels may be someone
+else's property, and this project is MIT — it cannot relicense what nobody in the chain
+owns. So the facts are recorded and the table is left where it was found.
+
+
 ## obdb_hints.json, obdb_supported.json, obdb_models.json — CC BY-SA 4.0
 
   Adapted from the OBDb vehicle signal database — https://github.com/OBDb
