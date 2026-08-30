@@ -899,6 +899,12 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 outFile = f
                 f.bufferedWriter().use { out ->
                     out.write("{\n")
+                    // WHICH BUILD WROTE THIS. A map from before a fix looks identical to
+                    // one from after it -- the Silverado's 2 supported PIDs and the Subaru's
+                    // 45 were the same code path, one of them raced. Without a stamp there
+                    // is no way to tell a stale capture from a current one except by
+                    // remembering, and nobody remembers.
+                    out.write("\"build\": \"${BuildTag.ID}\",\n")
                     out.write("\"wmi\": \"$wmi\",\n")
                     // Per-car key, not the VIN. See Discover.vinKey.
                     out.write("\"vin_key\": \"$vinKey\",\n")

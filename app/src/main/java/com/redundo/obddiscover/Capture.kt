@@ -59,6 +59,8 @@ class CaptureRunner(
      * split one model into a silo per model year, and no second Highlander would ever
      * match the first.
      */
+    /** What this vehicle already has on disk, and whether this build wrote it. */
+    var coverage by mutableStateOf(""); private set
     var modelClean by mutableStateOf(""); private set
     var modelSeries by mutableStateOf(""); private set
 
@@ -316,6 +318,7 @@ class CaptureRunner(
                 }
                 ble.cmd("ATSH$vinBroadcast")
             }
+            coverage = ""
             vin = if (ok) Discover.vinFrom(raw) else ""
             if (vin.isEmpty()) ble.log("VIN: no 17-char VIN parsed from either header")
             wmi = if (ok) Discover.wmiFrom(raw) else ""
@@ -669,6 +672,17 @@ class CaptureRunner(
             val cached = if (forceDiscover) null else findCached(vinKey)
             if (cached != null) {
                 val (file, plan, skipped) = cached
+                // WHAT THIS CAR ALREADY HAS, on screen, so "do I need to scan this again?"
+                // is answerable without pulling files off the phone.
+                coverage = runCatching {
+                    val o = JSONObject(file.readText())
+                    val b = o.optString("build")
+                    val pids = o.optJSONArray("mode01")?.length() ?: 0
+                    val blocks = o.optJSONArray("blocks")?.length() ?: 0
+                    val stale = b.isEmpty() || b != BuildTag.ID
+                    "$blocks blocks · $pids standard PIDs" +
+                        if (stale) "  ⚠ mapped on ${b.ifEmpty { "an older build" }}" else "  ✓ current"
+                }.getOrDefault("")
                 // The cached map is not rewritten by a cache hit, so a fresh scan would be
                 // lost to everything that reads the map afterwards -- the contribute export
                 // included. Fold it in, so a ten-second capture on a known vehicle still
@@ -937,6 +951,7 @@ class CaptureRunner(
             val o = JSONObject()
             o.put("wmi", wmi)
             o.put("vin_key", vinKey)
+            o.put("build", BuildTag.ID)
             o.put("preset", "generic")
             o.put("protocol", protocol)
             o.put("addressing", "none — $protocol is not CAN")

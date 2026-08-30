@@ -1001,3 +1001,28 @@ class OfflineModelLookupTest {
         assertEquals("Forester", a.getString(1))
     }
 }
+
+/**
+ * A map records which build wrote it, and the screen says so.
+ *
+ * The Silverado's 2 supported PIDs and the Subaru's 45 came out of the same code path —
+ * one of them raced. On disk the two maps are indistinguishable, so "has this car been
+ * scanned since the fix?" was answerable only by remembering, and nobody remembers.
+ */
+class BuildStampTest {
+    @Test fun bothMapWritersStampTheBuild() {
+        val d = java.io.File("src/main/java/com/redundo/obddiscover/Discover.kt").readText()
+        val c = java.io.File("src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+        assertTrue("the CAN map must record its build", d.contains("\\\"build\\\": \\\"\${BuildTag.ID}"))
+        assertTrue("the non-CAN map must record its build", c.contains("o.put(\"build\", BuildTag.ID)"))
+    }
+
+    @Test fun aStaleMapIsFlaggedOnScreen() {
+        val c = java.io.File("src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+        assertTrue("coverage must compare against the running build",
+            c.contains("b != BuildTag.ID"))
+        assertTrue("and say so", c.contains("mapped on"))
+        val ui = java.io.File("src/main/java/com/redundo/obddiscover/MainActivity.kt").readText()
+        assertTrue("the screen must show coverage", ui.contains("cap.coverage"))
+    }
+}

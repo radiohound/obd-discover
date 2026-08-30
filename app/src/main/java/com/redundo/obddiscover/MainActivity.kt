@@ -464,6 +464,15 @@ class MainActivity : ComponentActivity() {
                             Text(cap.modelName, style = MaterialTheme.typography.titleMedium)
                         Text(cap.status, style = MaterialTheme.typography.titleMedium)
                         if (cap.detail.isNotEmpty()) Text(cap.detail, fontSize = 11.sp)
+                        // COVERAGE. Answers "does this car still need scanning?" without
+                        // pulling files off the phone. Amber when the stored map predates
+                        // this build, because a map written before a fix looks exactly like
+                        // one written after it.
+                        if (cap.coverage.isNotEmpty()) {
+                            Text(cap.coverage, fontSize = 11.sp,
+                                color = if (cap.coverage.contains("⚠")) Color(0xFFE65100)
+                                        else Color(0xFF2E7D32))
+                        }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(checked = Session.onlineVinLookup,
                                 onCheckedChange = { Session.onlineVinLookup = it })
