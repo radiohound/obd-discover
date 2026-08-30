@@ -100,6 +100,17 @@ class ReadmeClaimsTest {
         // it sustained 18,768 round trips without a retry is the claim being made.
         assertEquals("an adapter may only be marked verified if someone ran it", 2,
             Regex("Verified on this app").findAll(readme).count())
+        // ...and the opening must not contradict the table it is summarising. The
+        // exclusivity claim outlived the row it described: #11 marked a second adapter
+        // verified in the table and the lede still read "the only adapter this app has
+        // been tested on" -- two claims in one file, disagreeing, with the false one
+        // first and the true one 230 lines down.
+        if (Regex("Verified on this app").findAll(readme).count() > 1) {
+            for (phrase in listOf("only adapter", "one adapter", "sole adapter")) {
+                assertTrue("more than one adapter is verified, so the opening may not " +
+                    "claim exclusivity -- found \"$phrase\"", !opening.contains(phrase))
+            }
+        }
     }
 
     @Test fun nineGenericAnchors() {
