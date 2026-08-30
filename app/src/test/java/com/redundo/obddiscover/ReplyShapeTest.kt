@@ -2,6 +2,7 @@ package com.redundo.obddiscover
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -51,6 +52,105 @@ class ReplyShapeTest {
     @Test fun payloadOfTakesOneFrameOnly() {
         val raw = "49040133343837\r49040231303030\r>"
         assertEquals("0133343837", Obd.hex(Obd.payloadOf("0904", raw)!!))
+    }
+
+    // --- Obd.messages: CAN multi-frame ---------------------------------------------
+
+    /**
+     * The reply shape that was dropped in silence on every vehicle this app ever scanned.
+     *
+     * Four EGT probes as u16 -- eight data bytes, four more than a single frame can carry
+     * once the PCI, the 0x62 and the identifier are paid for. Before messages() existed
+     * every line here failed startsWith("620078"), payloadOf returned null, no 0x7F meant
+     * it was not a refusal either, and the identifier went into the file as absent.
+     */
+    @Test fun mode22MultiFrameIsReassembled() {
+        val raw = "00B\r0:620078012C01\r1:45015E0170AAAA\r>"
+        assertEquals("012C0145015E0170", Obd.hex(Obd.payloadOf("220078", raw)!!))
+    }
+
+    /** The declared length is what strips the padding the last frame carries. */
+    @Test fun paddingIsTrimmedToTheDeclaredLength() {
+        val raw = "00B\r0:620078012C01\r1:45015E0170AAAA\r>"
+        assertFalse(Obd.hex(Obd.payloadOf("220078", raw)!!).contains("AA"))
+    }
+
+    /** Four data bytes still fit one frame, and must come back untouched. */
+    @Test fun singleFrameIsUnchanged() {
+        assertEquals("ABCD", Obd.hex(Obd.payloadOf("220010", "620010ABCD\r>")!!))
+    }
+
+    /**
+     * A functional broadcast is answered by every module, and a wide answer from two of
+     * them is two messages. Splicing them would invent a value that neither ECU sent.
+     */
+    @Test fun twoRespondersEachReassembleSeparately() {
+        val raw = "00B\r0:620078012C01\r1:45015E0170AAAA\r" +
+            "00B\r0:620078022C02\r1:45025E0270AAAA\r>"
+        val out = Obd.payloadsOf("220078", raw).map { Obd.hex(it) }
+        assertEquals(listOf("012C0145015E0170", "022C0245025E0270"), out)
+    }
+
+    /** The ISO-TP counter is four bits wide: F is followed by 0, same message. */
+    @Test fun theFrameIndexWrapsPastF() {
+        val sb = StringBuilder("076\r0:620078AABBCC\r")
+        for (i in 1..15) sb.append("%X".format(i)).append(":AABBCCDDEEFF00\r")
+        sb.append("0:AABBCCDDEEFF00\r>")
+        assertEquals(1, Obd.messages(sb.toString()).size)
+    }
+
+    /**
+     * K-line lines are NOT continuations. Every one repeats 4904 plus its own sequence
+     * byte, so two ECUs answering are indistinguishable from one long message -- which is
+     * how the phantom C0300 was born. Only an explicit `N:` index joins anything.
+     */
+    @Test fun kLineFramesAreNotJoined() {
+        val raw = "49040133343837\r49040231303030\r>"
+        assertEquals(2, Obd.payloadsOf("0904", raw).size)
+    }
+
+    /** An adapter's chatter is still one message per line, and still matches nothing. */
+    @Test fun noDataIsNotAFrame() {
+        assertEquals(listOf("NODATA"), Obd.messages("NO DATA\r>"))
+    }
+
+    /**
+     * Wire vectors from cheeseprince/obd-gauge-cluster, tools/obd_scan/tests/test_reply.py.
+     *
+     * Two projects reading the same adapter, so agreeing on these is worth more than any
+     * number of cases either of us invents alone. Note the fragments are NOT all seven
+     * bytes -- a real ELM prints what the frame carried, and a parser that assumes a fixed
+     * width reads every byte after the first short frame at the wrong offset.
+     */
+    @Test fun obdScanWireVectorsAgree() {
+        val raw = "00C\r0:62F4780706E1\r1:0777077700\r2:00\r>"
+        assertEquals("0706E1077707770000", Obd.hex(Obd.payloadOf("22F478", raw)!!))
+    }
+
+    /** Their truncation vector: five declared, eight supplied. */
+    @Test fun declaredLengthWinsOverWhatArrived() {
+        val raw = "005\r0:62F4461A\r1:FFFFFFFF\r>"
+        assertEquals("1AFF", Obd.hex(Obd.payloadOf("22F446", raw)!!))
+    }
+
+    /**
+     * A dropped fragment must not decode as short-but-valid data. Thirteen declared, six
+     * supplied: the honest answer is nothing, because a truncated payload is a plausible
+     * wrong number and an absent one gets asked about again.
+     */
+    @Test fun aDroppedFragmentIsNotShortData() {
+        assertNull(Obd.payloadOf("22F478", "00D\r0:62F4780706E1\r>"))
+    }
+
+    /** A genuine final 0x55 survives, because trimming goes by length, not by pad value. */
+    @Test fun aRealFinalPadByteSurvives() {
+        assertEquals("55", Obd.hex(Obd.payloadOf("22F446", "004\r0:62F44655\r>")!!))
+    }
+
+    /** A duplicate index masking a missing one must not reach the declared length. */
+    @Test fun aDuplicateIndexDoesNotPassAsComplete() {
+        val raw = "00C\r0:62F4780706E1\r1:0777077700\r1:0777077700\r>"
+        assertNull(Obd.payloadOf("22F478", raw))
     }
 
     // --- Mode09 support bitmap -----------------------------------------------------
