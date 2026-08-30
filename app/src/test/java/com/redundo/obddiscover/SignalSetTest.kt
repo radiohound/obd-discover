@@ -458,3 +458,38 @@ class KnownRequestReachTest {
             d.contains("all seven offsets of every block"))
     }
 }
+
+/**
+ * Model keys are matched without regard to case, everywhere.
+ *
+ * Found on the first real BMW run: supportedForModel was made case-insensitive for the
+ * Ioniq and its three siblings were left exact, so the OBDb model tier matched and our own
+ * measured list did not. Phase 0 offered 30 requests instead of 602 and the confirm pass
+ * silently did nothing.
+ */
+class ModelLookupCaseTest {
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/VehicleId.kt").readText()
+
+    @Test fun noModelKeyIsComparedExactly() {
+        assertTrue("no exact model comparison may remain",
+            !src.contains("k.substringAfter('|') != model"))
+        assertTrue("nor an exact make comparison",
+            !src.contains("k.substringBefore('|') != make"))
+    }
+
+    /** All three model-keyed lookups, not just the one that was reported. */
+    @Test fun everyModelKeyedLookupIgnoresCase() {
+        assertEquals("three lookups compare a model", 3,
+            src.split("equals(model, ignoreCase = true)").size - 1)
+        assertEquals("two compare a make", 2,
+            src.split("equals(make, ignoreCase = true)").size - 1)
+    }
+
+    /** The one that was already right stays right. */
+    @Test fun theModelTierStillIgnoresCase() {
+        assertTrue(src.contains("it.lowercase() == want"))
+    }
+}

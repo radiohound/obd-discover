@@ -293,8 +293,9 @@ object VehicleId {
         val loc = contributed?.optJSONObject("locations") ?: return emptyList()
         val out = ArrayList<Signal>()
         for (k in loc.keys()) {
-            if (k.substringBefore('|') != make) continue
-            if (model.isNotEmpty() && k.contains('|') && k.substringAfter('|') != model) continue
+            if (!k.substringBefore('|').equals(make, ignoreCase = true)) continue
+            if (model.isNotEmpty() && k.contains('|') &&
+                !k.substringAfter('|').equals(model, ignoreCase = true)) continue
             val sig = loc.optJSONObject(k)?.optJSONObject("sig") ?: continue
             for (did in sig.keys()) {
                 val e = sig.optJSONObject(did) ?: continue
@@ -323,11 +324,24 @@ object VehicleId {
      * six current records are 15.5 KB. See tools/merge_vehicles.py.
      */
     fun contributedRequests(make: String, model: String = ""): List<Pair<String, String>> {
+        // MATCHED WITHOUT REGARD TO CASE, like every other model lookup here.
+        //
+        // supportedForModel was made case-insensitive this morning because OBDb writes
+        // "IONIQ 5" where a person writes "Ioniq 5". These three were left exact, and the
+        // first BMW run on a real car found the cost: the OBDb model tier matched and ours
+        // did not, so phase 0 offered 30 requests instead of 602 and sent 11. The confirm
+        // pass -- the whole of phase 1 -- silently did nothing, and the session spent its
+        // ten minutes on recon with two blocks swept at the end of it.
+        //
+        // The model name reaching these functions comes from vPIC, from a contributed
+        // record, or from an operator typing it. Expecting three sources to agree on case
+        // is a bet this project has now lost twice.
         val loc = contributed?.optJSONObject("locations") ?: return emptyList()
         val out = LinkedHashSet<Pair<String, String>>()
         for (k in loc.keys()) {
-            if (k.substringBefore('|') != make) continue
-            if (model.isNotEmpty() && k.contains('|') && k.substringAfter('|') != model) continue
+            if (!k.substringBefore('|').equals(make, ignoreCase = true)) continue
+            if (model.isNotEmpty() && k.contains('|') &&
+                !k.substringAfter('|').equals(model, ignoreCase = true)) continue
             val ids = loc.optJSONObject(k)?.optJSONObject("ids") ?: continue
             for (hdr in ids.keys()) {
                 val packed = ids.optString(hdr)
@@ -355,7 +369,8 @@ object VehicleId {
             val km = k.substringBefore('|')
             if (km != make) continue
             // An exact model wins; with no model, every record for the make contributes.
-            if (model.isNotEmpty() && k.contains('|') && k.substringAfter('|') != model) continue
+            if (model.isNotEmpty() && k.contains('|') &&
+                !k.substringAfter('|').equals(model, ignoreCase = true)) continue
             val e = loc.optJSONObject(k) ?: continue
             val hdrs = e.optJSONArray("hdr") ?: continue
             val blks = e.optJSONArray("blk") ?: continue
