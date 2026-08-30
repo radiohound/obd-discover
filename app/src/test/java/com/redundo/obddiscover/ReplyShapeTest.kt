@@ -1788,3 +1788,37 @@ class ResumeBeatsAStaleCacheTest {
         assertTrue("or believed empty", body.contains("it.emptyRuns >= 2"))
     }
 }
+
+/**
+ * What a resumed run reports on screen.
+ *
+ * The count reset to zero before the sweeps so phase 0's hits would not be double-counted --
+ * correct on a fresh run, and badly wrong on a resumed one, where finished blocks are never
+ * re-swept and so were never counted. A BMW carrying 703 identifiers displayed about thirty,
+ * which reads as a map that lost everything.
+ */
+class ResumedRunReportsWhatItHasTest {
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Discover.kt").readText()
+
+    @Test fun carriedIdentifiersAreCounted() {
+        assertTrue("the count must not simply reset", !src.contains("didsFound = 0     //"))
+        val i = src.indexOf("didsFound = found.values")
+        assertTrue("it must be seeded from what is already known", i > 0)
+        val body = src.substring(i, i + 200)
+        assertTrue("only blocks that are actually swept", body.contains("it.swept"))
+        assertTrue("and that hold something", body.contains("it.fullHits.isNotEmpty()"))
+    }
+
+    /**
+     * Only finished blocks are seeded, and those are exactly the ones the sweeps skip -- so
+     * nothing is counted twice.
+     */
+    @Test fun nothingIsCountedTwice() {
+        val seeded = src.indexOf("didsFound = found.values")
+        val skip = src.indexOf("filterNot { finished(it) }")
+        assertTrue("the sweeps must skip finished blocks", skip > seeded)
+    }
+}

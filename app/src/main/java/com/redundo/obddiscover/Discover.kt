@@ -1019,7 +1019,15 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     }
                 }
                 blocksFound = found.size
-                didsFound = 0     // the sweeps below recount these
+                // Phase 0's hits are recounted by the sweeps below, so they reset to zero --
+                // but a RESUMED run does not re-sweep what is already finished, so those
+                // identifiers would never be counted at all. The screen then reads "24 blocks
+                // · 30 DIDs" on a vehicle whose map holds 703, which looks exactly like a map
+                // that lost everything. The drive plan was always right; only the number was
+                // wrong, and a number that says the work is gone is its own kind of wrong.
+                didsFound = found.values
+                    .filter { it.swept && it.fullHits.isNotEmpty() }
+                    .sumOf { it.fullHits.size }
 
                 // One block, swept end to end. Used twice: once on what phase 0 already
                 // proved, and once on everything recon turns up afterwards.
