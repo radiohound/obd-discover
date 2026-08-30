@@ -670,6 +670,33 @@ class RecordRichnessTest {
         }
     }
 
+    /**
+     * The ladder is shared vocabulary, so it has to mean the same thing in every record.
+     * `correlated` is a claim about a correlate run and must carry the numbers behind it —
+     * at correlate.py's own thresholds, mirrored in Triage as MIN_R_STRONG and MIN_SAMPLES.
+     */
+    @Test fun confidenceUsesTheDefinedLadder() {
+        val levels = setOf("ground-truth", "correlated", "weak", "inferred", "guess")
+        for ((f, r) in records()) {
+            val sigs = r.optJSONArray("signals") ?: continue
+            for (i in 0 until sigs.length()) {
+                val s = sigs.getJSONObject(i)
+                val c = s.optString("confidence")
+                assertTrue("${f.name}: ${s.optString("did")} has confidence $c", c in levels)
+                if (c == "correlated") {
+                    assertTrue("${f.name}: 'correlated' must record r and samples",
+                        s.has("r") && s.has("samples"))
+                    assertTrue("${f.name}: r must clear MIN_R_STRONG",
+                        s.getDouble("r") >= Triage.MIN_R_STRONG)
+                    assertTrue("${f.name}: must clear MIN_SAMPLES",
+                        s.getInt("samples") >= Triage.MIN_SAMPLES)
+                }
+                assertTrue("${f.name}: ${s.optString("did")} must say how it is known",
+                    s.optString("verified").isNotEmpty())
+            }
+        }
+    }
+
     @Test fun confidenceIsAlwaysStated() {
         // An unlabelled name reads as fact. Every signal must say how sure it is.
         for ((f, r) in records()) {

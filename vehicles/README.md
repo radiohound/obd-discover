@@ -75,10 +75,32 @@ the project. `221700` on a BMW F10 is the odometer in kilometres, confirmed agai
 dashboard reading and then against a 17-minute drive. Because that is a field and not a
 sentence, every later F10 scan can name it without repeating the work.
 
-**`confidence` is not decoration.** Use `ground-truth` only when a number was watched
-against something real — a dashboard, a fuel receipt, a measured drive. Anything else is a
-guess and should say so, because a wrong name is worse than no name: it stops the next
-person looking.
+### confidence is not decoration
+
+A wrong name is worse than no name — it stops the next person looking. So every signal says
+how well it is known, on a ladder the project already has thresholds for:
+
+| level | what it means |
+| :--- | :--- |
+| `ground-truth` | a value was watched against something real — a dashboard reading, a fuel receipt, a measured distance |
+| `correlated` | `obd_scan correlate` scored `r >= 0.90` against a known anchor over at least 30 samples. Record `against`, `r` and `samples` |
+| `weak` | `r >= 0.60`, or fewer than 30 samples. A lead, not a finding |
+| `inferred` | identified by reasoning rather than measurement — a value that sits where physics says it should. Say what the reasoning was |
+| `guess` | anything else, and it should say so |
+
+The thresholds are `correlate.py`'s own, mirrored in `Triage.kt` as `MIN_R_STRONG` (0.90),
+`MIN_R_WEAK` (0.60) and `MIN_SAMPLES` (30), so a claim here means the same thing it means in
+a correlate report.
+
+**You never have to publish your log to prove a signal.** `r`, the sample count and the
+anchor are claims *about* the data, not the data — and a delta is shareable where an
+absolute is not. "Rose 41 over a 24.5-minute drive, matching distance travelled" proves an
+odometer and tells nobody your mileage. Run `correlate` on your own machine, keep the RAW
+export, publish the conclusion.
+
+Verification is by **reproduction, not audit**: someone with the same model drives, gets the
+same result, and the signal is confirmed on two cars. That is stronger evidence than one
+person's CSV, because it rules out something peculiar to one vehicle.
 
 `pids` carries the names because a record is read by a person on GitHub before anything
 else reads it, and `"0105"` says nothing to a reader without the table open beside it. The

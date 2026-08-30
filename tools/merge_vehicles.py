@@ -81,9 +81,29 @@ def main(out_path):
         # act on it. A named identifier is different: it lets a scan say "odometer, km"
         # about a car nobody has scanned before, which is the one thing this project says
         # it cannot do. Six fields per signal, a handful per vehicle.
+        LEVELS = ("ground-truth", "correlated", "weak", "inferred", "guess")
         for sg in (r.get("signals") or []):
             did = (sg.get("did") or "").upper()
             if not did or not sg.get("name"): continue
+            # A confidence level has to mean the same thing in every record, or the field
+            # is decoration. `correlated` in particular is a claim about a correlate run
+            # and has to carry the numbers that back it.
+            conf = sg.get("confidence")
+            if conf not in LEVELS:
+                errors += fail(p, f"signal {did}: confidence {conf!r} is not one of {LEVELS}")
+                continue
+            if conf == "correlated" and not (sg.get("r") and sg.get("samples")):
+                errors += fail(p, f"signal {did}: 'correlated' must record `r` and `samples`")
+                continue
+            if conf in ("correlated", "weak") and sg.get("r") is not None:
+                floor = 0.90 if conf == "correlated" else 0.60
+                if float(sg["r"]) < floor:
+                    errors += fail(p, f"signal {did}: r={sg['r']} is below the {conf} floor "
+                                      f"of {floor} -- correlate.py's own threshold")
+                    continue
+            if not sg.get("verified"):
+                errors += fail(p, f"signal {did}: needs `verified` saying how it is known")
+                continue
             prev = e["sig"].get(did)
             # Ground truth outranks a guess; otherwise first writer wins.
             if prev and prev.get("c") == "ground-truth" and sg.get("confidence") != "ground-truth":
