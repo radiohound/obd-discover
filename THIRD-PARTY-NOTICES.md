@@ -23,11 +23,11 @@ follows `catalog.ANCHORS`, and `Triage` mirrors `correlate.py`'s interpretations
 set and thresholds — deliberately, so this app's advisory reading cannot quietly disagree
 with the authoritative one.
 
-Also derived: the Mode-22 decodes recorded against BMW 5 Series in `vehicles/` --
-224402 oil temperature, 22586F oil pressure, 2258BA crank torque and 224517 reference
-torque -- come from that project's curated F10 profile, `src/vehicles/bmw_f10_535i.cpp`.
-The identifiers were found independently by this app's own sweep; what obd-gauge-cluster
-supplied is what they MEAN and how to scale them, which is the harder half.
+The F10 Mode-22 decodes recorded in `vehicles/BMW/5-Series.json` also appear in that
+project's curated profile, `src/vehicles/bmw_f10_535i.cpp`, and the two agree. They were
+worked out on the car rather than taken from a list -- 2258BA in particular is named in
+none of the six community BMW lists -- so the entries here credit the work rather than
+adapt a source. Where the profile is the better reference, its file is cited in the record.
 
 If you scan a vehicle with this app, that is the project to send results to.
 
