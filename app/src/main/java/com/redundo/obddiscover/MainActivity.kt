@@ -575,6 +575,17 @@ class MainActivity : ComponentActivity() {
                             Text("${discover.blocksFound} blocks · ${discover.didsFound} DIDs",
                                 fontSize = 13.sp)
                             Text(discover.progress, fontSize = 11.sp)
+                            // Loud on purpose. This is the one line during a 30-minute scan
+                            // that the operator can act on, and the window to act is while
+                            // they are still next to the car.
+                            if (discover.warning.isNotEmpty()) {
+                                Text(
+                                    discover.warning,
+                                    color = MaterialTheme.colorScheme.error,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp,
+                                )
+                            }
                         }
                         if (cap.phase == CapPhase.DRIVE) {
                             // The drive is the LONG half and had no target on screen.

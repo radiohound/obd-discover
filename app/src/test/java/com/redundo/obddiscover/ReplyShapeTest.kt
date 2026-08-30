@@ -1345,3 +1345,60 @@ class ResumeRulesTest {
         assertFalse(finished(blk("2244xx", hits = 0, swept = false)))   // none -> pending
     }
 }
+
+/**
+ * The two guards a resumed map needs (phase 3).
+ *
+ * Both exist because a silence got recorded as a fact about a vehicle: nine blocks on a BMW
+ * during a refuelling stop, with zero timeouts and zero retries the whole time.
+ */
+class OutageGuardTest {
+
+    private val root: java.io.File =
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile }
+    private val src = java.io.File(
+        root, "app/src/main/java/com/redundo/obddiscover/Discover.kt").readText()
+
+    /**
+     * Three, chosen from data rather than taste: ten of twelve captures contain no empty
+     * block at all, and the only non-aborted run that produced any produced nine.
+     */
+    @Test fun theWarningTripsAtThreeConsecutiveEmptyBlocks() {
+        assertTrue("the consecutive-empty counter must exist", src.contains("emptyRun"))
+        assertTrue("and must trip at three", src.contains("emptyRun >= 3"))
+    }
+
+    /** It has to clear itself, or the first outage marks the whole rest of the run. */
+    @Test fun aBlockThatAnswersClearsTheWarning() {
+        val reset = src.indexOf("emptyRun = 0")
+        assertTrue("the counter must reset when a block answers", reset > 0)
+        assertTrue("and the warning with it", src.contains("warning = \"\""))
+    }
+
+    /**
+     * The overlap re-sweeps a block that already has hits, so a disagreement means the
+     * vehicle's state changed rather than that the block was never done.
+     */
+    @Test fun theOverlapChecksABlockThatAlreadyAnswered() {
+        val i = src.indexOf("val overlap = found.values.lastOrNull")
+        assertTrue("the overlap block must be chosen", i > 0)
+        val pick = src.substring(i, i + 200)
+        assertTrue("it must have been swept", pick.contains("it.swept"))
+        assertTrue("and must have hits to compare against", pick.contains("fullHits.isNotEmpty()"))
+        assertTrue("and be on a header that is answering now", pick.contains("liveHeaders"))
+    }
+
+    /**
+     * An identifier that answered once is a fact about the vehicle. A state disagreement is
+     * a reason to warn, never a reason to drop data.
+     */
+    @Test fun theOverlapKeepsTheUnionAndOnlyWarns() {
+        val i = src.indexOf("val lost = before - now")
+        assertTrue("the comparison must exist", i > 0)
+        val body = src.substring(maxOf(0, i - 900), i + 400)
+        assertTrue("new identifiers are kept", body.contains("overlap.fullHits.add"))
+        assertTrue("a disagreement warns", body.contains("answered differently"))
+        assertTrue("nothing is removed", !body.contains("fullHits.remove"))
+    }
+}

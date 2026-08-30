@@ -30,7 +30,7 @@ enum class CapPhase { IDLE, VIN, DISCOVER, DRIVE, DONE, FAILED }
  */
 /** Short buzz when a run ends. A ten-minute parked sweep is not watched, and a
  *  three-second one finishes before anyone looks up. */
-private fun buzz(ctx: Context, ok: Boolean) = runCatching {
+internal fun buzz(ctx: Context, ok: Boolean) = runCatching {
     val v = ctx.getSystemService(android.os.Vibrator::class.java) ?: return@runCatching
     val pattern = if (ok) longArrayOf(0, 120, 90, 120) else longArrayOf(0, 400)
     v.vibrate(android.os.VibrationEffect.createWaveform(pattern, -1))

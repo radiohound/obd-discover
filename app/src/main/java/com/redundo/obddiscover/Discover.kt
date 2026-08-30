@@ -681,6 +681,15 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
      */
     var resumeBlocks: List<DiscoveredBlock> = emptyList()
     var resumeReconDone: Boolean = false
+
+    /**
+     * Something the operator can still do something about, while they are standing there.
+     *
+     * A capture that records nine consecutive empty blocks is a ruined run discovered
+     * afterwards; a message at the third one is a run somebody saves by turning the ignition
+     * back on. Cleared as soon as a block answers again.
+     */
+    var warning by mutableStateOf(""); private set
     /** Extra headers this make is known to use, e.g. Toyota's 700. */
     var hintedHeaders: List<String> = emptyList()
 
@@ -852,6 +861,55 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     ble.log("resuming: ${found.size} block(s) known, $done already swept, " +
                         "$requeued empty and re-queued" +
                         if (resumeReconDone) ", recon already complete" else "")
+
+                    // --- the overlap block -------------------------------------------
+                    //
+                    // One block, re-swept, costing about a minute. It was asked for as
+                    // insurance against missing something at a session boundary, and it buys
+                    // something larger: it is the only cheap way to find out whether two
+                    // sessions are comparable AT ALL.
+                    //
+                    // A map assembled over several sessions is inherently multi-state. Same
+                    // hits as last time and the car is in a comparable state; different hits
+                    // and it is not -- learned in sixty seconds rather than discovered in a
+                    // merged map weeks later. This morning's BMW is what that costs: 195
+                    // identifiers that three prior runs found consistently, absent, and no
+                    // way to know until the file was read at a desk.
+                    //
+                    // The union is kept either way. An identifier that answered once is a
+                    // fact about the vehicle; the state it answered in is a separate fact,
+                    // and recording that per block is phase 4.
+                    val overlap = found.values.lastOrNull {
+                        it.swept && it.fullHits.isNotEmpty() && liveHeaders.contains(it.header)
+                    }
+                    if (overlap != null && !stopFlag) {
+                        phase = "overlap"
+                        progress = "re-checking ${overlap.name} against the last session"
+                        val before = overlap.fullHits.map { it.first }.toSet()
+                        val now = LinkedHashSet<String>()
+                        selectHeader(overlap.header)
+                        for (off in 0..255) {
+                            if (stopFlag) break
+                            val req = "%04X%02X".format(overlap.prefix, off)
+                            val (present, payload, _) = ask(req)
+                            probes++; probesSweep++
+                            if (present && payload != null) {
+                                now.add(req)
+                                if (req !in before) overlap.fullHits.add(req to payload)
+                            }
+                        }
+                        val lost = before - now
+                        val gained = now - before
+                        if (!stopFlag && (lost.isNotEmpty() || gained.isNotEmpty())) {
+                            warning = "${overlap.name} answered differently than last session " +
+                                "(${lost.size} gone, ${gained.size} new) — the car may not be " +
+                                "in the same state"
+                            ble.log("WARNING: $warning")
+                        } else if (!stopFlag) {
+                            ble.log("overlap ${overlap.name}: ${now.size} identifiers, " +
+                                "unchanged — sessions are comparable")
+                        }
+                    }
                 }
 
                 // --- phase 0: ask for what is already known, by name ------------------
@@ -907,6 +965,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 // One block, swept end to end. Used twice: once on what phase 0 already
                 // proved, and once on everything recon turns up afterwards.
                 var swept = 0
+                var emptyRun = 0
                 val swept0 = HashSet<String>()
                 fun sweepOne(b: DiscoveredBlock, denom: () -> Int, exact: Boolean) {
                     swept0.add(b.name)
@@ -936,7 +995,34 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     // block being swept when the operator hit stop would be recorded as a
                     // fact about the vehicle.
                     b.swept = true
-                    if (b.fullHits.size == hitsBefore) b.emptyRuns++ else b.emptyRuns = 0
+                    if (b.fullHits.size == hitsBefore) {
+                        b.emptyRuns++
+                        emptyRun++
+                        // THREE, because a healthy capture has never produced one. Ten of
+                        // twelve contain no empty block at all -- every block recon finds,
+                        // the sweep finds data in, which follows from a block only entering
+                        // the sweep because recon already answered there. Three in a row has
+                        // only ever happened while a vehicle was away.
+                        //
+                        // The transport looks perfectly healthy while this happens: the BMW
+                        // that lost nine blocks to a refuelling stop recorded 0 timeouts and
+                        // 0 retries, because the DME was answering the whole time, just with
+                        // conditionsNotCorrect instead of data. consecutiveDead counts dead
+                        // probes and there were none, which is why nothing noticed.
+                        if (emptyRun >= 3 && warning.isEmpty()) {
+                            warning = "$emptyRun blocks in a row answered nothing — " +
+                                "is the vehicle still on?"
+                            ble.log("WARNING: $warning")
+                            buzz(ctx, false)
+                        } else if (emptyRun >= 3) {
+                            warning = "$emptyRun blocks in a row answered nothing — " +
+                                "is the vehicle still on?"
+                        }
+                    } else {
+                        b.emptyRuns = 0
+                        emptyRun = 0
+                        warning = ""
+                    }
                     swept++
                 }
 
