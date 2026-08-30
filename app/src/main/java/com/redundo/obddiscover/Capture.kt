@@ -1103,7 +1103,22 @@ class CaptureRunner(
             try {
                 val o = JSONObject(f.readText())
                 if (o.optString("vin_key") != key) continue
-                if (o.optBoolean("aborted", false)) continue      // incomplete: map again
+                // NOT ABORTED IS NOT THE SAME AS FINISHED, since the session budget landed.
+                // A paused run ends tidily and writes aborted:false, so on this test alone a
+                // ten-minute bite would look like a finished map and every later CAPTURE
+                // would skip discovery -- mapping a vehicle once, briefly, and never again.
+                // That is the whole of D1 and D2 undone by one boolean.
+                if (o.optBoolean("aborted", false)) continue      // stopped: map again
+                if (o.optBoolean("paused", false)) continue       // budget: more to do
+                // recon_done is absent on captures written before it existed. Those predate
+                // resuming entirely and were complete-or-aborted, so the old test still
+                // decides them; only files that carry the field are held to it.
+                if (o.has("recon_done") && !o.optBoolean("recon_done")) continue
+                val unfinished = (0 until (o.optJSONArray("detail")?.length() ?: 0)).any { i ->
+                    val b = o.optJSONArray("detail")?.optJSONObject(i)
+                    b != null && b.has("swept") && !b.optBoolean("swept")
+                }
+                if (unfinished) continue                          // blocks still queued
                 val det = o.optJSONArray("detail") ?: continue
                 val byHeader = LinkedHashMap<String, MutableList<String>>()
                 for (i in 0 until det.length()) {

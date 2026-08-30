@@ -1693,3 +1693,45 @@ class ResumeEndToEndTest {
         assertNull(mergeProgress(listOf(capture(blocks = listOf(block("2244xx")))), ""))
     }
 }
+
+/**
+ * A finished map versus one that merely was not stopped.
+ *
+ * The session budget introduced a third outcome. Before it there were two -- ran to the end,
+ * or the operator stopped it -- and "not aborted" meant finished. A paused run ends tidily
+ * and writes aborted:false, so on the old test a ten-minute bite would be mistaken for a
+ * complete map and every later CAPTURE would skip discovery. Mapped once, briefly, forever.
+ */
+class FinishedVersusNotStoppedTest {
+
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+
+    private val body = src.substring(src.indexOf("private fun findCached"),
+        src.indexOf("private fun findCached") + 2200)
+
+    @Test fun aStoppedRunIsNotAFinishedMap() {
+        assertTrue(body.contains("""o.optBoolean("aborted", false)) continue"""))
+    }
+
+    @Test fun aPausedRunIsNotAFinishedMap() {
+        assertTrue(body.contains("""o.optBoolean("paused", false)) continue"""))
+    }
+
+    @Test fun aRunWhoseReconNeverEndedIsNotAFinishedMap() {
+        assertTrue(body.contains("""o.has("recon_done") && !o.optBoolean("recon_done")"""))
+    }
+
+    @Test fun aMapWithBlocksStillQueuedIsNotFinished() {
+        assertTrue(body.contains("unfinished"))
+        assertTrue(body.contains("""b.has("swept") && !b.optBoolean("swept")"""))
+    }
+
+    /** Captures from before these fields must still count, or every mapped car re-maps. */
+    @Test fun anOlderCaptureIsStillJudgedByTheOldTest() {
+        assertTrue("recon_done is only enforced when present", body.contains("""o.has("recon_done")"""))
+        assertTrue("and swept only when present", body.contains("""b.has("swept")"""))
+    }
+}
