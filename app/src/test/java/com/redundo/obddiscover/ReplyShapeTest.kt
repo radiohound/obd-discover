@@ -1491,8 +1491,9 @@ class ResumableReconTest {
         val d = src("Discover.kt")
         val i = d.indexOf("reconDoneHdrs.add(h)")
         assertTrue("headers must be marked done", i > 0)
-        assertTrue("only when nothing stopped it",
-            d.substring(maxOf(0, i - 80), i).contains("if (!stopFlag)"))
+        val guard = d.substring(maxOf(0, i - 80), i)
+        assertTrue("only when the operator did not stop it", guard.contains("!stopFlag"))
+        assertTrue("and not when the session budget ended it", guard.contains("!paused"))
     }
 
     /** The estimate has to size only the work actually left, or the bar lies on a resume. */
@@ -1517,5 +1518,58 @@ class ResumableReconTest {
         val body = c.substring(i, i + 500)
         assertTrue("falling back to the old flag", body.contains("recon_done"))
         assertTrue("meaning the headers it targeted", body.contains("headers_targeted"))
+    }
+}
+
+/**
+ * The two review findings: a session that ends on a clock, and progress that survives one.
+ */
+class SessionBudgetTest {
+
+    private val root: java.io.File =
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile }
+    private fun src(n: String) = java.io.File(
+        root, "app/src/main/java/com/redundo/obddiscover/$n").readText()
+
+    /** Paused is a clean end, not a failure. Confusing them refuses a drive that should run. */
+    @Test fun aPausedRunIsNotAnAbortedOne() {
+        val c = src("Capture.kt")
+        val i = c.indexOf("discover.paused && plan != null")
+        assertTrue("a paused run with a plan must be handled", i > 0)
+        assertTrue("and must reach the drive", c.substring(i, i + 500).contains("driveStep(plan)"))
+        assertTrue("before the aborted branch", i < c.indexOf("} else if (discover.aborted)"))
+    }
+
+    /** The clock is checked between blocks, so nothing is left half-asked. */
+    @Test fun theBudgetEndsOnABlockBoundary() {
+        val d = src("Discover.kt")
+        assertTrue("both sweeps check it", d.split("if (outOfTime()) { paused = true; break }").size - 1 >= 2)
+        assertTrue("and it is measured from the run start", d.contains("System.currentTimeMillis() - runStartMs"))
+    }
+
+    /** A header the budget interrupted has ruled nothing out and must run again. */
+    @Test fun aPausedReconHeaderIsNotMarkedDone() {
+        assertTrue(src("Discover.kt").contains("if (!stopFlag && !paused) reconDoneHdrs.add(h)"))
+    }
+
+    /** Zero means no limit, for a deliberate full map. */
+    @Test fun noBudgetMeansNoLimit() {
+        assertTrue(src("Discover.kt").contains("budgetMs > 0 &&"))
+    }
+
+    /**
+     * The newest capture is not the richest. Re-map a mapped car, stop it two minutes in,
+     * and the most recent file holds three blocks while an hour sits in the one before.
+     */
+    @Test fun progressIsMergedAcrossCapturesNotTakenFromTheNewest() {
+        val c = src("Capture.kt")
+        val i = c.indexOf("private fun findProgress")
+        val body = c.substring(i, i + 3000)
+        assertTrue("oldest first, so newer facts win", body.contains("sortedBy { it.lastModified() }"))
+        assertTrue("every capture for the vehicle is read", !body.contains("return out to"))
+        assertTrue("hits union rather than replace", body.contains("hitMap.putAll(hits)"))
+        assertTrue("swept is sticky", body.contains("|| (prev?.swept ?: false)"))
+        assertTrue("empty_runs takes the larger", body.contains("maxOf(b.optInt(\"empty_runs\", 0)"))
     }
 }

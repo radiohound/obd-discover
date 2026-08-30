@@ -708,6 +708,26 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
     var resumeReconHeaders: Set<String> = emptySet()
 
     /**
+     * How long this session is willing to spend mapping before handing over to the drive.
+     *
+     * A map is now a queue that survives being put down, so there is no longer any reason to
+     * ask for two hours in one sitting. Ten minutes of mapping and then the drive somebody
+     * was taking anyway converges a vehicle over a week of ordinary use, and every session
+     * ends with a drive log rather than with a decision about whether to keep waiting.
+     *
+     * Checked at block boundaries only. A block stopped halfway is pending, not empty, and
+     * the point of a budget is to end tidily rather than wherever the clock happens to fall.
+     * Zero means no limit, which is what a deliberate full map wants.
+     */
+    var budgetMs: Long = 0L
+
+    /** Set when the budget ended the run. NOT the same as aborted: nothing went wrong. */
+    var paused by mutableStateOf(false); private set
+
+    private fun outOfTime(): Boolean =
+        budgetMs > 0 && System.currentTimeMillis() - runStartMs >= budgetMs
+
+    /**
      * Something the operator can still do something about, while they are standing there.
      *
      * A capture that records nine consecutive empty blocks is a ruined run discovered
@@ -759,6 +779,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
         stopping = false; aborted = false; matchedModels = emptyList(); allHits = emptyList()
         runStartMs = System.currentTimeMillis()
         knownTotal = 0; reconTotalP = 0; pctFloor = 0; etaSecs = 0.0; etaFirstSecs = 0.0
+        paused = false
         estBlocks = Discover.blockPrior(hintedBlocks.size)
 
         ble.runOnWorker {
@@ -1096,6 +1117,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     ble.log("sweeping ${seeded.size} block(s) proved by phase 0, before recon")
                     for (b in seeded) {
                         if (stopFlag) break
+                        if (outOfTime()) { paused = true; break }
                         sweepOne(b, { seeded.size }, exact = false)
                     }
                 }
@@ -1123,6 +1145,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     val order = (hintedHi + (0..255).filter { it !in hintedHi })
                     for (hi in order) {
                         if (stopFlag) break
+                        if (outOfTime()) { paused = true; break }
                         val prefix = (Discover.SERVICE shl 8) or hi
                         val name = "%04Xxx".format(prefix)
                         val hitsHere = ArrayList<String>()
@@ -1153,7 +1176,8 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     // Only a header walked to the last prefix has ruled anything out. Stop
                     // partway and it stays on the list, because a half-searched header is
                     // indistinguishable from one with nothing in the part not reached.
-                    if (!stopFlag) reconDoneHdrs.add(h)
+                    if (!stopFlag && !paused) reconDoneHdrs.add(h)
+                    if (paused) break
                 }
 
                 // Recon reached the end only if nothing stopped it. A resumed run skips
@@ -1184,6 +1208,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     if (stopFlag) break
                     if (b.name in swept0 || finished(b)) continue
                     if (!liveHeaders.contains(b.header)) continue   // carried, not sweepable
+                    if (outOfTime()) { paused = true; break }
                     sweepOne(b, { found.size }, exact = true)
                 }
 
@@ -1263,6 +1288,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     out.write("\"mode01\": [${stdPidsIn.joinToString(", ") { "\"$it\"" }}],\n")
                     // Both: recon_done is the whole-vehicle answer a reader wants, and
                     // recon_headers is what the next session actually resumes from.
+                    out.write("\"paused\": $paused,\n")
                     out.write("\"recon_done\": $reconComplete,\n")
                     out.write("\"recon_headers\": [${reconDoneHdrs.joinToString(", ") { "\"$it\"" }}],\n")
                     out.write("\"aborted\": ${if (stopFlag) "true" else "false"},\n")

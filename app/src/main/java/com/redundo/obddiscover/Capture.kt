@@ -30,6 +30,26 @@ enum class CapPhase { IDLE, VIN, DISCOVER, DRIVE, DONE, FAILED }
  */
 /** Short buzz when a run ends. A ten-minute parked sweep is not watched, and a
  *  three-second one finishes before anyone looks up. */
+/**
+ * How many capture files a resume will read back.
+ *
+ * Progress is merged across every capture for this vehicle rather than taken from the newest
+ * one, because the newest is not the richest: re-map a fully mapped car, let it stop two
+ * minutes in, and the most recent file holds three blocks while an hour of sweeping sits in
+ * the one before it. Recency decides which fact wins, never which facts exist.
+ */
+private const val MAX_PROGRESS_FILES = 40
+
+/**
+ * Minutes of mapping per session before the drive takes over (decision D1).
+ *
+ * A blind map is 25 to 75 minutes and an Ioniq 5 with every header live is about two hours.
+ * Nobody endures that, and now nobody has to: the map is a queue that survives being put
+ * down, so a session takes a bite and the drive somebody was taking anyway follows. A
+ * vehicle converges over a week of ordinary use instead of demanding one long sitting.
+ */
+private const val SESSION_MAP_MINUTES = 10
+
 internal fun buzz(ctx: Context, ok: Boolean) = runCatching {
     val v = ctx.getSystemService(android.os.Vibrator::class.java) ?: return@runCatching
     val pattern = if (ok) longArrayOf(0, 120, 90, 120) else longArrayOf(0, 400)
@@ -770,6 +790,7 @@ class CaptureRunner(
                 }
                 phase = CapPhase.DISCOVER
 
+                discover.budgetMs = SESSION_MAP_MINUTES * 60_000L
                 discover.excludedHeaders = if (mk.isEmpty()) emptySet() else VehicleId.excludedHeaders(mk, also = sib)
                 discover.hintedBlocks = if (mk.isEmpty()) emptyList() else VehicleId.blockPrefixes(mk, also = sib)
                 discover.hintedHeaders = if (mk.isEmpty()) emptyList() else VehicleId.headers(mk, also = sib)
@@ -847,7 +868,16 @@ class CaptureRunner(
                     // and logPlan was therefore set -- started a six-hour drive log instead
                     // of stopping. Stopping during recon happened to be safe only because no
                     // full sweep had run yet, so there was no plan to act on.
-                    if (discover.aborted) {
+                    // PAUSED IS NOT STOPPED. The budget ended this session tidily at a block
+                    // boundary with nothing wrong, so the run does what decision D2 asks for:
+                    // advance the map, then log the drive. Only a run the operator actually
+                    // stopped, or one that found nothing, refuses to go on.
+                    if (discover.paused && plan != null && plan.second.isNotEmpty()) {
+                        status = "mapped for $SESSION_MAP_MINUTES min — " +
+                            "${discover.blocksFound} blocks known, logging the drive now"
+                        detail = "the rest of the map continues next time you plug in"
+                        driveStep(plan)
+                    } else if (discover.aborted) {
                         LogService.stop(ctx)
                         phase = CapPhase.FAILED
                         buzz(ctx, false)
@@ -981,13 +1011,17 @@ class CaptureRunner(
         if (key.isEmpty()) return null
         val dir = File(ctx.getExternalFilesDir(null), "logs")
         val files = dir.listFiles { f -> f.name.startsWith("discover-") && f.name.endsWith(".json") }
-            ?.sortedByDescending { it.lastModified() } ?: return null
+            ?.sortedBy { it.lastModified() }        // oldest first: newer facts win
+            ?.takeLast(MAX_PROGRESS_FILES) ?: return null
+        val merged = LinkedHashMap<String, DiscoveredBlock>()
+        val reconHdrs = LinkedHashSet<String>()
+        var any = false
         for (f in files) {
             try {
                 val o = JSONObject(f.readText())
                 if (o.optString("vin_key") != key) continue
                 val det = o.optJSONArray("detail") ?: continue
-                val out = ArrayList<DiscoveredBlock>()
+                any = true
                 for (i in 0 until det.length()) {
                     val b = det.optJSONObject(i) ?: continue
                     val name = b.optString("name")
@@ -996,37 +1030,45 @@ class CaptureRunner(
                     b.optJSONArray("recon_hits")?.let { a ->
                         for (j in 0 until a.length()) recon.add(a.optString(j))
                     }
-                    val hits = ArrayList<Pair<String, String>>()
+                    val hits = LinkedHashMap<String, String>()
                     b.optJSONArray("full_hits")?.let { a ->
                         for (j in 0 until a.length()) {
                             val e = a.optJSONArray(j) ?: continue
-                            hits.add(e.optString(0) to e.optString(1))
+                            hits[e.optString(0)] = e.optString(1)
                         }
                     }
-                    out.add(DiscoveredBlock(
-                        name, prefix, b.optString("header"), recon, hits,
-                        swept = b.optBoolean("swept", hits.isNotEmpty()),
-                        emptyRuns = b.optInt("empty_runs", 0),
-                        state = b.optString("state", ""),
-                        sweptAt = b.optString("swept_at", "")))
+                    val prev = merged[name]
+                    // An identifier that answered once is a fact about the vehicle, so hits
+                    // union rather than replace. swept is sticky for the same reason: a later
+                    // run that never reached this block does not un-sweep it. emptyRuns takes
+                    // the larger, since it is a running count each capture carries forward.
+                    val hitMap = LinkedHashMap<String, String>()
+                    prev?.fullHits?.forEach { hitMap[it.first] = it.second }
+                    hitMap.putAll(hits)
+                    val sweptNow = b.optBoolean("swept", hits.isNotEmpty())
+                    merged[name] = DiscoveredBlock(
+                        name, prefix,
+                        b.optString("header").ifEmpty { prev?.header ?: "" },
+                        (prev?.reconHits.orEmpty() + recon).distinct(),
+                        hitMap.entries.map { it.key to it.value }.toMutableList(),
+                        swept = sweptNow || (prev?.swept ?: false),
+                        emptyRuns = maxOf(b.optInt("empty_runs", 0), prev?.emptyRuns ?: 0),
+                        // Provenance follows the run that actually swept it.
+                        state = if (sweptNow) b.optString("state", "") else prev?.state ?: "",
+                        sweptAt = if (sweptNow) b.optString("swept_at", "") else prev?.sweptAt ?: "")
                 }
-                if (out.isEmpty()) continue
-                // Per header where the file says so. A capture from before that field says
-                // only yes or no for the whole vehicle -- read as "all of them" when it
-                // finished, which is what it meant, and none otherwise.
-                val hdrs = LinkedHashSet<String>()
                 o.optJSONArray("recon_headers")?.let { a ->
-                    for (j in 0 until a.length()) hdrs.add(a.optString(j))
+                    for (j in 0 until a.length()) reconHdrs.add(a.optString(j))
                 }
-                if (hdrs.isEmpty() && o.optBoolean("recon_done", false)) {
+                if (o.optJSONArray("recon_headers") == null && o.optBoolean("recon_done", false)) {
                     o.optJSONArray("headers_targeted")?.let { a ->
-                        for (j in 0 until a.length()) hdrs.add(a.optString(j))
+                        for (j in 0 until a.length()) reconHdrs.add(a.optString(j))
                     }
                 }
-                return out to hdrs
             } catch (_: Exception) { /* unreadable file: try the next */ }
         }
-        return null
+        if (!any || merged.isEmpty()) return null
+        return merged.values.toList() to reconHdrs
     }
 
     private fun findCached(key: String): Triple<File, Pair<String, List<String>>, Int>? {
