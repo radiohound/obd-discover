@@ -164,10 +164,20 @@
       "against": "MAF-derived power",
       "verified": "Anchored on engine behaviour, three ways independent of scale: it collapses to zero on overrun, it peaks at 5940 rpm for power and 3800 rpm for torque -- the N55's published curve -- and it correlates r=+0.938 against MAF-derived power. Scale then pinned at 0.1 Nm/count from the DME's own calibration convention. Reported live as a percentage of 224517. The donor car is TUNED, so the magnitudes here are this vehicle's rather than a stock N55's; the 0.1 Nm/count convention is what transfers, and it should hold on any MEVD17.2.",
       "source": "identified in this project's own sweeping of 0x2258xx. UNNAMED IN ALL SIX COMMUNITY BMW LISTS -- this is not a decode anyone published, it was worked out from the car."
+    },
+    {
+      "did": "2258F3",
+      "header": "7DF",
+      "name": "rev limit (second identifier)",
+      "unit": "rpm",
+      "scale": 1,
+      "confidence": "weak",
+      "verified": "Reads 0x1A90, 6800, in five of five complete sweeps here -- identical to 224A2E, the confirmed rev limiter, while every non-constant DID moved between those sweeps. So it is genuinely a constant at the limiter's value. Whether it is the same field under a second identifier, or a separate limit that happens to share the number, is NOT established: two configuration constants can both be 6800 without being the same thing.",
+      "source": "constant across this project's own five complete F10 sweeps"
     }
   ],
   "source": "obd-discover, 4 on-car capture(s) 2026-08; Mode-01 support scanned 2026-08-29",
-  "notes": "535i (F10). 2258xx and 224Axx are absent from the community list entirely. Enhanced Mode-22 reads in the 58xx block on the 7DF functional broadcast decode byte 0 only; a full u16 read there ingests NAK frames. That constraint comes from obd-gauge-cluster's profile and matters for anyone decoding 2258xx from a broadcast. 225817 and 2258EB were oil-temperature candidates in the 58xx block and are byte-identical to each other on 99.51% of 1,427 logged rows -- one signal under two identifiers, which is what makes them candidates rather than two findings. Horsepower on the dash is computed from 2258BA x 224517 x rpm; everything else shown there is standard Mode-01, not enhanced DIDs. OPEN: 2258F3 also reads 0x1A90 (6800) as a constant in this project's own drive logs, the same value as the rev limiter at 224A2E. Whether it is a mirror of the limiter, a second limit, or a coincidence is untested.",
+  "notes": "535i (F10). 2258xx and 224Axx are absent from the community list entirely. Enhanced Mode-22 reads in the 58xx block on the 7DF functional broadcast decode byte 0 only; a full u16 read there ingests NAK frames. That constraint comes from obd-gauge-cluster's profile and matters for anyone decoding 2258xx from a broadcast. 225817 and 2258EB were oil-temperature candidates in the 58xx block and are byte-identical to each other on 99.51% of 1,427 logged rows -- one signal under two identifiers, which is what makes them candidates rather than two findings. Horsepower on the dash is computed from 2258BA x 224517 x rpm; everything else shown there is standard Mode-01, not enhanced DIDs. 2258F3 holds the limiter's value in all five complete sweeps and is recorded as a signal; whether it mirrors 224A2E or is a separate limit is still open.",
   "anchors": [
     {
       "did": "224300",
