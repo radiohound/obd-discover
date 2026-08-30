@@ -854,7 +854,7 @@ class CaptureRunner(
                 discover.resumeBlocks = prior?.first ?: emptyList()
                 discover.resumeReconHeaders = prior?.second ?: emptySet()
                 status = when {
-                    forceDiscover -> "re-mapping this vehicle from scratch, no time limit..."
+                    forceDiscover -> "re-mapping from scratch — $SESSION_MAP_MINUTES min, then the drive"
                     prior != null -> "continuing the map — " +
                         "${prior.first.count { it.swept && it.fullHits.isNotEmpty() }} block(s) " +
                         "already done"
@@ -863,12 +863,18 @@ class CaptureRunner(
                 }
                 phase = CapPhase.DISCOVER
 
-                // CAPTURE takes a bite; Re-map does the whole thing. The clock exists so a
-                // map converges across ordinary drives, not to stop anybody who has actually
-                // set aside the hour -- and without an escape there would be no way left to
-                // run a vehicle to completion at all, which is what a baseline needs.
-                discover.budgetMs =
-                    if (forceDiscover) 0L else SESSION_MAP_MINUTES * 60_000L
+                // EVERY session is a bite, Re-map included. Re-map means "discard what is
+                // known and begin again", not "begin again and sit here for an hour" -- a
+                // fresh start converges over drives exactly as a resumed one does, and the
+                // only thing an unbudgeted variant ever bought was a single-sitting baseline
+                // run that turned out to be unnecessary: the same count arrives when the
+                // incremental map completes, and carries per-block state stamps besides.
+                //
+                // It also removes the one way left to end a session badly. Unbudgeted, the
+                // only way to stop a Re-map early was to stop it by hand, which marks the
+                // capture aborted and refuses the drive -- the exact outcome this design
+                // exists to make unnecessary.
+                discover.budgetMs = SESSION_MAP_MINUTES * 60_000L
                 discover.excludedHeaders = if (mk.isEmpty()) emptySet() else VehicleId.excludedHeaders(mk, also = sib)
                 discover.hintedBlocks = if (mk.isEmpty()) emptyList() else VehicleId.blockPrefixes(mk, also = sib)
                 discover.hintedHeaders = if (mk.isEmpty()) emptyList() else VehicleId.headers(mk, also = sib)

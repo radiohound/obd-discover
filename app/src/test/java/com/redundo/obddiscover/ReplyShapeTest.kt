@@ -1553,9 +1553,22 @@ class SessionBudgetTest {
         assertTrue(src("Discover.kt").contains("if (!stopFlag && !paused) reconDoneHdrs.add(h)"))
     }
 
-    /** Zero means no limit, for a deliberate full map. */
+    /** Zero still means no limit in the runner, even though nothing sets it today. */
     @Test fun noBudgetMeansNoLimit() {
         assertTrue(src("Discover.kt").contains("budgetMs > 0 &&"))
+    }
+
+    /**
+     * Re-map means "discard what is known and begin again", not "sit here for an hour".
+     * Unbudgeted, the only way to end one early was by hand -- which marks the capture
+     * aborted and refuses the drive, the outcome this whole design exists to avoid.
+     */
+    @Test fun everySessionIsABiteIncludingAFreshStart() {
+        val c = src("Capture.kt")
+        assertTrue("the budget is set unconditionally",
+            c.contains("discover.budgetMs = SESSION_MAP_MINUTES * 60_000L"))
+        assertTrue("with no escape for forceDiscover",
+            !c.contains("if (forceDiscover) 0L"))
     }
 
     /**
