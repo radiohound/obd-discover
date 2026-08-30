@@ -1093,7 +1093,7 @@ class ScanRunsOnCachedCaptureTest {
 
     @Test fun theScanPrecedesTheCacheDecision() {
         val scan = cap.indexOf("Mode-01 bitmap scan")
-        val cached = cap.indexOf("val cached = if (forceDiscover)")
+        val cached = cap.indexOf("val cached = if (forceDiscover")
         assertTrue("both must exist", scan > 0 && cached > 0)
         assertTrue("the scan must run before the cache branch is taken", scan < cached)
     }
@@ -1746,5 +1746,45 @@ class FinishedVersusNotStoppedTest {
     @Test fun anOlderCaptureIsStillJudgedByTheOldTest() {
         assertTrue("recon_done is only enforced when present", body.contains("""o.has("recon_done")"""))
         assertTrue("and swept only when present", body.contains("""b.has("swept")"""))
+    }
+}
+
+/**
+ * Which branch a CAPTURE takes, and why it is not findCached's decision alone.
+ *
+ * findCached reads ONE capture and asks whether that run was stopped. A capture written
+ * before blocks carried a swept flag answers no to every guard there is, so it was accepted
+ * as a finished map and discovery skipped -- on every vehicle in this project, because every
+ * one of them has such a file. The first CAPTURE after a paused session drove off having
+ * mapped nothing, with twenty blocks pending in the file beside it.
+ */
+class ResumeBeatsAStaleCacheTest {
+
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+
+    /** Progress is consulted before the cache, not inside the branch the cache skips. */
+    @Test fun progressIsReadBeforeTheCacheDecision() {
+        val prior = src.indexOf("val prior = if (forceDiscover) null else findProgress(vinKey)")
+        val cached = src.indexOf("val cached = if (forceDiscover || unfinished)")
+        assertTrue("progress must be read", prior > 0)
+        assertTrue("and read first", prior < cached)
+    }
+
+    /** Unfinished work anywhere in the merged view means resume, whatever one file claims. */
+    @Test fun unfinishedWorkSuppressesTheCache() {
+        assertTrue(src.contains("val cached = if (forceDiscover || unfinished) null else findCached(vinKey)"))
+    }
+
+    /** Finished uses the same rule the sweeps use: swept, and either answered or twice empty. */
+    @Test fun theFinishedTestMatchesTheOneTheSweepsUse() {
+        val i = src.indexOf("val unfinished = prior?.first?.any")
+        assertTrue("the test must exist", i > 0)
+        val body = src.substring(i, i + 220)
+        assertTrue("swept", body.contains("it.swept"))
+        assertTrue("with hits", body.contains("it.fullHits.isNotEmpty()"))
+        assertTrue("or believed empty", body.contains("it.emptyRuns >= 2"))
     }
 }

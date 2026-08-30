@@ -807,7 +807,22 @@ class CaptureRunner(
             // nothing. The cached branch overwrites this with the fuller line.
             if (stdPids.isNotEmpty()) coverage = "${stdPids.size} standard PIDs found"
 
-            val cached = if (forceDiscover) null else findCached(vinKey)
+            // WHETHER A MAP IS FINISHED IS A QUESTION FOR THE MERGED PROGRESS, not for
+            // whichever single file findCached happens to like. It reads one capture and
+            // asks "was this run stopped" -- and a capture written before blocks carried a
+            // swept flag answers no to every guard there is, so an old complete-looking file
+            // was accepted as a finished map and discovery skipped. Every vehicle in this
+            // project has one of those, which made resuming unreachable on all of them: the
+            // first CAPTURE after a paused session went straight to the drive and mapped
+            // nothing, while twenty blocks sat pending in the file right beside it.
+            //
+            // Pick up where an earlier run stopped, unless the operator asked for a clean
+            // map. Re-map means start over; CAPTURE means continue (D7).
+            val prior = if (forceDiscover) null else findProgress(vinKey)
+            val unfinished = prior?.first?.any {
+                !(it.swept && (it.fullHits.isNotEmpty() || it.emptyRuns >= 2))
+            } ?: false
+            val cached = if (forceDiscover || unfinished) null else findCached(vinKey)
             if (cached != null) {
                 val (file, plan, skipped) = cached
                 // WHAT THIS CAR ALREADY HAS, on screen, so "do I need to scan this again?"
@@ -846,11 +861,6 @@ class CaptureRunner(
             } else {
                 // No VIN is NOT a reason to reuse someone else's map. Discovering again
                 // costs ten minutes; logging the wrong car's DIDs costs the whole drive.
-                // Pick up where an earlier run stopped, unless the operator asked for a
-                // clean map. Re-map means start over; CAPTURE means continue -- which is the
-                // split decided in D7 of the resumable-mapping note, using the two buttons
-                // that already exist rather than inventing a third.
-                val prior = if (forceDiscover) null else findProgress(vinKey)
                 discover.resumeBlocks = prior?.first ?: emptyList()
                 discover.resumeReconHeaders = prior?.second ?: emptySet()
                 status = when {
