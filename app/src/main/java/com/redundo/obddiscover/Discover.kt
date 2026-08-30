@@ -354,6 +354,25 @@ data class DiscoveredBlock(
     val header: String,
     val reconHits: List<String>,
     val fullHits: MutableList<Pair<String, String>> = mutableListOf(),   // request to payload
+    /**
+     * Whether all 256 offsets of this block have actually been asked.
+     *
+     * WITHOUT THIS A RUN CANNOT BE RESUMED HONESTLY. A block the sweep never reached and a
+     * block the sweep finished and found nothing in are both "no full hits", and a resumed
+     * run that cannot tell them apart either re-does work it has done or skips work it has
+     * not. The file has to say which.
+     */
+    var swept: Boolean = false,
+    /**
+     * How many SEPARATE runs have swept this block and found nothing in it.
+     *
+     * An empty block is never treated as done -- ten of twelve captures contain no empty
+     * blocks at all, so re-queueing them costs nothing on a healthy car and repairs an
+     * interrupted one by itself. But a car really can contradict its own recon, so the
+     * escape hatch is repetition across runs: seen empty twice, in different sessions, it is
+     * believed. One run cannot decide this, because one run is exactly what an outage is.
+     */
+    var emptyRuns: Int = 0,
 )
 
 class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
@@ -644,6 +663,24 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
 
     /** Headers this make must not be probed on at all. See VehicleId.excludedHeaders. */
     var excludedHeaders: Set<String> = emptySet()
+
+    /**
+     * Progress carried in from an earlier run on this same vehicle.
+     *
+     * A map is a queue of independent block jobs, each about a minute, and until now the
+     * position in that queue was thrown away the moment a run ended early -- so a scan that
+     * got 80% of the way through a GM truck was worth exactly as much as one that never
+     * started. Resuming needs three facts and no more: which blocks exist, which of them
+     * have actually been swept end to end, and whether recon finished.
+     *
+     * EMPTY IS NOT DONE. A block swept with no hits comes back on the queue, because ten of
+     * twelve captures contain no empty blocks at all -- so re-queueing costs nothing on a
+     * healthy car, and on an interrupted one it repairs the outage by itself with no
+     * threshold to tune. Believed only after two separate runs have found it empty, since
+     * one run finding a block empty is exactly what an outage looks like.
+     */
+    var resumeBlocks: List<DiscoveredBlock> = emptyList()
+    var resumeReconDone: Boolean = false
     /** Extra headers this make is known to use, e.g. Toyota's 700. */
     var hintedHeaders: List<String> = emptyList()
 
@@ -800,6 +837,23 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 }
 
                 // --- phase 1: recon -------------------------------------------------
+                // Everything an earlier run on this vehicle already established. Blocks
+                // come back with their swept flag intact, so the sweeps below skip what is
+                // genuinely finished and redo what only looked finished.
+                if (resumeBlocks.isNotEmpty()) {
+                    var done = 0; var requeued = 0
+                    for (b in resumeBlocks) {
+                        if (!liveHeaders.contains(b.header)) continue
+                        found[b.name] = b
+                        if (b.swept && b.fullHits.isNotEmpty()) done++
+                        else if (b.swept) requeued++
+                    }
+                    blocksFound = found.size
+                    ble.log("resuming: ${found.size} block(s) known, $done already swept, " +
+                        "$requeued empty and re-queued" +
+                        if (resumeReconDone) ", recon already complete" else "")
+                }
+
                 // --- phase 0: ask for what is already known, by name ------------------
                 //
                 // Cheapest and most certain step there is. These are supported-command
@@ -857,8 +911,9 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 fun sweepOne(b: DiscoveredBlock, denom: () -> Int, exact: Boolean) {
                     swept0.add(b.name)
                     selectHeader(b.header)
+                    val hitsBefore = b.fullHits.size
                     for (off in 0..255) {
-                        if (stopFlag) return
+                        if (stopFlag) return                  // partway: still pending
                         val req = "%04X%02X".format(b.prefix, off)
                         val (present, payload, _) = ask(req)
                         probes++; probesSweep++
@@ -876,6 +931,12 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                                 "%02X/FF  —  $didsFound DIDs found".format(off)
                         }
                     }
+                    // Only a sweep that RAN TO THE END has asked all 256 offsets. A stop
+                    // partway through leaves the block pending, not empty -- otherwise the
+                    // block being swept when the operator hit stop would be recorded as a
+                    // fact about the vehicle.
+                    b.swept = true
+                    if (b.fullHits.size == hitsBefore) b.emptyRuns++ else b.emptyRuns = 0
                     swept++
                 }
 
@@ -895,7 +956,13 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 // -- are complete in about a quarter of an hour, and the open-ended search
                 // is what gets deferred. That is the half worth deferring: it is the half
                 // with no known payoff.
-                val seeded = found.values.toList()
+                // A block is finished only if it was swept AND something answered. Swept
+                // and empty goes round again -- unless two separate runs have now found it
+                // empty, at which point the vehicle has contradicted its own recon twice and
+                // is believed.
+                fun finished(b: DiscoveredBlock) =
+                    b.swept && (b.fullHits.isNotEmpty() || b.emptyRuns >= 2)
+                val seeded = found.values.filterNot { finished(it) }
                 if (seeded.isNotEmpty()) {
                     phase = "sweep"
                     ble.log("sweeping ${seeded.size} block(s) proved by phase 0, before recon")
@@ -906,12 +973,16 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 }
 
                 phase = "recon"
+                // An earlier run that reached the end of recon ruled out every block it did
+                // not find. One that was interrupted ruled out nothing, so it runs again.
+                var reconComplete = resumeReconDone
+                if (resumeReconDone) ble.log("recon already complete on an earlier run; skipping")
                 val reconTotal = liveHeaders.size * 256
                 // In PROBES, not blocks: recon asks all seven offsets of every block with no
                 // early exit, so this is the real cost and the one the bar must be scaled by.
                 reconTotalP = reconTotal * Discover.OFFSETS.size
                 var reconDone = 0
-                for (h in liveHeaders) {
+                for (h in if (resumeReconDone) emptyList() else liveHeaders) {
                     if (stopFlag) break
                     selectHeader(h)                         // once per header
                     // Hinted high-bytes first, then everything else. Same 256 blocks
@@ -949,6 +1020,12 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     }
                 }
 
+                // Recon reached the end only if nothing stopped it. A resumed run skips
+                // recon when this was true, and repeats it when it was not -- an interrupted
+                // recon has not ruled anything out.
+                if (!stopFlag) reconComplete = true
+                reconTotalP = if (resumeReconDone) 0 else reconTotalP
+
                 // Documented blocks get a FULL sweep even when recon drew a blank in them.
                 // Recon samples seven offsets; a block whose DIDs all sit elsewhere reads as
                 // empty. On a Ford Ranger that silently lost transmission oil temperature
@@ -969,7 +1046,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 phase = "sweep"
                 for (b in found.values.toList()) {
                     if (stopFlag) break
-                    if (b.name in swept0) continue
+                    if (b.name in swept0 || finished(b)) continue
                     sweepOne(b, { found.size }, exact = true)
                 }
 
@@ -1047,6 +1124,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     // whose meanings the standard already defines, and the drive logger
                     // read nine of them anyway without anything recording that they exist.
                     out.write("\"mode01\": [${stdPidsIn.joinToString(", ") { "\"$it\"" }}],\n")
+                    out.write("\"recon_done\": $reconComplete,\n")
                     out.write("\"aborted\": ${if (stopFlag) "true" else "false"},\n")
                     // Schema below matches obd_scan's discover.json so that
                     // `sweep --blocks-from` can read this file unmodified.
@@ -1060,7 +1138,11 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     out.write(found.values.joinToString(",\n") { b ->
                         val recon = b.reconHits.joinToString(", ") { "\"$it\"" }
                         val full = b.fullHits.joinToString(", ") { "[\"${it.first}\", \"${it.second}\"]" }
+                        // swept says all 256 offsets were asked; empty_runs counts the
+                        // separate runs that asked them and found nothing. Together they are
+                        // what lets the next run pick up honestly instead of starting over.
                         "  {\"name\": \"${b.name}\", \"header\": \"${b.header}\", " +
+                            "\"swept\": ${b.swept}, \"empty_runs\": ${b.emptyRuns}, " +
                             "\"recon_hits\": [$recon], \"full_hits\": [$full]}"
                     })
                     out.write("\n]\n}\n")

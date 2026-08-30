@@ -753,8 +753,18 @@ class CaptureRunner(
             } else {
                 // No VIN is NOT a reason to reuse someone else's map. Discovering again
                 // costs ten minutes; logging the wrong car's DIDs costs the whole drive.
+                // Pick up where an earlier run stopped, unless the operator asked for a
+                // clean map. Re-map means start over; CAPTURE means continue -- which is the
+                // split decided in D7 of the resumable-mapping note, using the two buttons
+                // that already exist rather than inventing a third.
+                val prior = if (forceDiscover) null else findProgress(vinKey)
+                discover.resumeBlocks = prior?.first ?: emptyList()
+                discover.resumeReconDone = prior?.second ?: false
                 status = when {
-                    forceDiscover -> "re-mapping this vehicle..."
+                    forceDiscover -> "re-mapping this vehicle from scratch..."
+                    prior != null -> "continuing the map — " +
+                        "${prior.first.count { it.swept && it.fullHits.isNotEmpty() }} block(s) " +
+                        "already done"
                     vinKey.isEmpty() -> "VIN unreadable — mapping from scratch to be safe"
                     else -> "new vehicle${if (wmi.isNotEmpty()) " ($wmi)" else ""} — mapping its blocks"
                 }
@@ -847,7 +857,7 @@ class CaptureRunner(
                             "discover JSON is saved with what recon found."
                         else
                             "${plan.second.size} DIDs were read before stopping and are saved. " +
-                            "Run CAPTURE again to finish the sweep."
+                            "CAPTURE picks up where this left off."
                     } else if (plan == null || plan.second.isEmpty()) {
                         LogService.stop(ctx)
                         phase = CapPhase.FAILED
@@ -955,6 +965,56 @@ class CaptureRunner(
     }
 
     /** Newest usable map for this car: right VIN key, has blocks, and finished cleanly. */
+    /**
+     * What an earlier run on this vehicle already established, complete or not.
+     *
+     * findCached answers "is there a finished map to drive on". This answers the different
+     * question a resumed run asks: which blocks are known, which of them are genuinely
+     * swept, and did recon reach the end. An aborted capture is the whole point here, where
+     * findCached rightly refuses it.
+     *
+     * Older captures carry no swept flag. They are read as swept when they hold hits and
+     * pending when they do not, which is the reading that cannot lose data: a block that
+     * really was empty simply gets asked once more.
+     */
+    private fun findProgress(key: String): Pair<List<DiscoveredBlock>, Boolean>? {
+        if (key.isEmpty()) return null
+        val dir = File(ctx.getExternalFilesDir(null), "logs")
+        val files = dir.listFiles { f -> f.name.startsWith("discover-") && f.name.endsWith(".json") }
+            ?.sortedByDescending { it.lastModified() } ?: return null
+        for (f in files) {
+            try {
+                val o = JSONObject(f.readText())
+                if (o.optString("vin_key") != key) continue
+                val det = o.optJSONArray("detail") ?: continue
+                val out = ArrayList<DiscoveredBlock>()
+                for (i in 0 until det.length()) {
+                    val b = det.optJSONObject(i) ?: continue
+                    val name = b.optString("name")
+                    val prefix = name.take(4).toIntOrNull(16) ?: continue
+                    val recon = ArrayList<String>()
+                    b.optJSONArray("recon_hits")?.let { a ->
+                        for (j in 0 until a.length()) recon.add(a.optString(j))
+                    }
+                    val hits = ArrayList<Pair<String, String>>()
+                    b.optJSONArray("full_hits")?.let { a ->
+                        for (j in 0 until a.length()) {
+                            val e = a.optJSONArray(j) ?: continue
+                            hits.add(e.optString(0) to e.optString(1))
+                        }
+                    }
+                    out.add(DiscoveredBlock(
+                        name, prefix, b.optString("header"), recon, hits,
+                        swept = b.optBoolean("swept", hits.isNotEmpty()),
+                        emptyRuns = b.optInt("empty_runs", 0)))
+                }
+                if (out.isEmpty()) continue
+                return out to o.optBoolean("recon_done", false)
+            } catch (_: Exception) { /* unreadable file: try the next */ }
+        }
+        return null
+    }
+
     private fun findCached(key: String): Triple<File, Pair<String, List<String>>, Int>? {
         if (key.isEmpty()) return null
         val dir = File(ctx.getExternalFilesDir(null), "logs")

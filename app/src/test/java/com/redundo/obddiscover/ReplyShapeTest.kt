@@ -1282,3 +1282,66 @@ class CaptureStateTest {
             src("Session.kt").contains("\"unspecified\","))
     }
 }
+
+/**
+ * Resuming a map (phase 2 of the resumable-mapping note).
+ *
+ * The rules are small and the consequences are not: get "done" wrong in either direction and
+ * a resumed run either re-does an hour of work or writes a gap down as a fact.
+ */
+class ResumeRulesTest {
+
+    private fun blk(name: String, hits: Int, swept: Boolean, emptyRuns: Int = 0) =
+        DiscoveredBlock(name, name.take(4).toInt(16), "7DF", emptyList(),
+            (1..hits).map { "%04X%02X".format(0x2244, it) to "00" }.toMutableList(),
+            swept = swept, emptyRuns = emptyRuns)
+
+    /** The rule the sweeps use. Kept here so it cannot drift from the one under test. */
+    private fun finished(b: DiscoveredBlock) =
+        b.swept && (b.fullHits.isNotEmpty() || b.emptyRuns >= 2)
+
+    /** Swept with hits is the only unambiguous "done". */
+    @Test fun aSweptBlockWithHitsIsDone() {
+        assertTrue(finished(blk("2244xx", hits = 42, swept = true)))
+    }
+
+    /**
+     * The rule the whole design rests on. Ten of twelve captures contain no empty blocks at
+     * all, so re-queueing costs nothing on a healthy car -- and on the BMW that lost nine
+     * consecutive blocks to a refuelling stop, it is what repairs them.
+     */
+    @Test fun aSweptButEmptyBlockIsNotDone() {
+        assertFalse(finished(blk("2244xx", hits = 0, swept = true)))
+    }
+
+    /**
+     * The escape hatch, or a car that genuinely contradicts its own recon loops forever.
+     * Two SEPARATE runs, because one run finding a block empty is exactly what an outage
+     * looks like.
+     */
+    @Test fun twoSeparateRunsFindingItEmptyIsBelieved() {
+        assertFalse(finished(blk("2244xx", hits = 0, swept = true, emptyRuns = 1)))
+        assertTrue(finished(blk("2244xx", hits = 0, swept = true, emptyRuns = 2)))
+    }
+
+    /** A block the sweep never reached is pending, not empty. */
+    @Test fun anUnsweptBlockIsNeverDone() {
+        assertFalse(finished(blk("2244xx", hits = 0, swept = false)))
+        assertFalse(finished(blk("2244xx", hits = 9, swept = false)))
+    }
+
+    /**
+     * Stopping partway through a block must leave it pending. Otherwise the block being
+     * swept when the operator hits stop gets written down as a fact about the vehicle.
+     */
+    @Test fun theBlockInterruptedMidSweepStaysPending() {
+        val b = blk("2244xx", hits = 7, swept = false)      // stopped at offset 7 of 255
+        assertFalse("a partial sweep is not a swept block", finished(b))
+    }
+
+    /** Older captures have no swept flag; hits mean swept, nothing means ask again. */
+    @Test fun aCaptureFromBeforeThisFieldStillReadsSafely() {
+        assertTrue(finished(blk("2244xx", hits = 3, swept = true)))     // hits -> swept
+        assertFalse(finished(blk("2244xx", hits = 0, swept = false)))   // none -> pending
+    }
+}
