@@ -332,3 +332,72 @@ class ReadmeClaimsTest {
             File(root, "gradle/wrapper/gradle-wrapper.jar").isFile)
     }
 }
+
+/**
+ * Re-map has to be reachable without running something first.
+ *
+ * It used to require cap.info, which is set part-way through a run, so from a cold connect
+ * the button did not exist and the only way to reach it was to start a capture and stop it.
+ * That is the dance resumable mapping exists to remove, and Re-map is now the ordinary way
+ * to begin a fresh map rather than a repair for a stale one.
+ */
+class RemapReachableTest {
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/MainActivity.kt").readText()
+
+    @Test fun remapDoesNotWaitForAVehicleToBeIdentified() {
+        val i = src.indexOf("""Text("Re-map")""")
+        assertTrue("the Re-map button must exist", i > 0)
+        val block = src.substring(maxOf(0, i - 700), i)
+        assertTrue("it must not be gated on cap.info", !block.contains("cap.info != null"))
+        assertTrue("only on a connected adapter", block.contains("ble.connected && ident != null"))
+        assertTrue("and on nothing already running", block.contains("!cap.running"))
+    }
+}
+
+/**
+ * The Silverado figures both READMEs quote, pinned to the record they describe.
+ *
+ * They were the only numbers in either file that no test covered, and they were the only
+ * ones that had gone stale: 1,929 was the broadcast header alone rather than the vehicle,
+ * and 40 blocks came from a single capture the record has since grown past. Correcting the
+ * digits without pinning them would have left them free to drift again on the next merge.
+ */
+class SilveradoFiguresTest {
+    private val root: java.io.File =
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile }
+    private val map = org.json.JSONObject(
+        java.io.File(root, "vehicles/Chevrolet/Silverado-HD.map.json").readText())
+
+    private fun readme(n: String) = java.io.File(root, n).readText()
+
+    @Test fun bothReadmesQuoteTheRecordsIdentifierCount() {
+        val n = map.getInt("identifier_count")
+        val text = "%,d".format(n)
+        assertTrue("README must quote $text", readme("README.md").contains(text))
+        assertTrue("vehicles/README must quote $text",
+            readme("vehicles/README.md").contains(text))
+    }
+
+    @Test fun theBlockCountIsTheOneTheRecordHolds() {
+        val ids = map.getJSONObject("identifiers")
+        val blocks = ids.keys().asSequence().flatMap { h ->
+            val a = ids.getJSONArray(h)
+            (0 until a.length()).asSequence().map { a.getString(it).take(4) }
+        }.toSet().size
+        assertTrue("vehicles/README must say $blocks blocks",
+            readme("vehicles/README.md").contains("is $blocks blocks"))
+    }
+
+    /** The old figures must be gone, not merely joined by the new ones. */
+    @Test fun theStaleFiguresAreNotStillThere() {
+        for (n in listOf("README.md", "vehicles/README.md")) {
+            assertTrue("$n still says 1,929", !readme(n).contains("1,929"))
+        }
+        assertTrue("vehicles/README still says 40 blocks",
+            !readme("vehicles/README.md").contains("is 40 blocks"))
+    }
+}

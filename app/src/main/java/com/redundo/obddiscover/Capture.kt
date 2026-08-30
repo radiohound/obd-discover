@@ -30,7 +30,100 @@ enum class CapPhase { IDLE, VIN, DISCOVER, DRIVE, DONE, FAILED }
  */
 /** Short buzz when a run ends. A ten-minute parked sweep is not watched, and a
  *  three-second one finishes before anyone looks up. */
-private fun buzz(ctx: Context, ok: Boolean) = runCatching {
+/**
+ * How many capture files a resume will read back.
+ *
+ * Progress is merged across every capture for this vehicle rather than taken from the newest
+ * one, because the newest is not the richest: re-map a fully mapped car, let it stop two
+ * minutes in, and the most recent file holds three blocks while an hour of sweeping sits in
+ * the one before it. Recency decides which fact wins, never which facts exist.
+ */
+private const val MAX_PROGRESS_FILES = 40
+
+/**
+ * Minutes of mapping per session before the drive takes over (decision D1).
+ *
+ * A blind map is 25 to 75 minutes and an Ioniq 5 with every header live is about two hours.
+ * Nobody endures that, and now nobody has to: the map is a queue that survives being put
+ * down, so a session takes a bite and the drive somebody was taking anyway follows. A
+ * vehicle converges over a week of ordinary use instead of demanding one long sitting.
+ */
+private const val SESSION_MAP_MINUTES = 10
+
+/**
+ * Fold every capture for one vehicle into the progress a resumed run starts from.
+ *
+ * Separated from the file reading so it can actually be exercised. The rules here decide
+ * whether an hour of sweeping survives, and until this was testable the only thing standing
+ * behind them was that the source looked right -- which is exactly how a silent data-loss
+ * bug got as far as a commit.
+ *
+ * Captures arrive OLDEST FIRST. Recency decides which fact wins; it never decides which
+ * facts exist.
+ */
+internal fun mergeProgress(
+    captures: List<String>, key: String,
+): Pair<List<DiscoveredBlock>, Set<String>>? {
+    if (key.isEmpty()) return null
+    val merged = LinkedHashMap<String, DiscoveredBlock>()
+    val reconHdrs = LinkedHashSet<String>()
+    var any = false
+    for (text in captures) {
+        try {
+            val o = JSONObject(text)
+            if (o.optString("vin_key") != key) continue
+            val det = o.optJSONArray("detail") ?: continue
+            any = true
+            for (i in 0 until det.length()) {
+                val b = det.optJSONObject(i) ?: continue
+                val name = b.optString("name")
+                val prefix = name.take(4).toIntOrNull(16) ?: continue
+                val recon = ArrayList<String>()
+                b.optJSONArray("recon_hits")?.let { a ->
+                    for (j in 0 until a.length()) recon.add(a.optString(j))
+                }
+                val hits = LinkedHashMap<String, String>()
+                b.optJSONArray("full_hits")?.let { a ->
+                    for (j in 0 until a.length()) {
+                        val e = a.optJSONArray(j) ?: continue
+                        hits[e.optString(0)] = e.optString(1)
+                    }
+                }
+                val prev = merged[name]
+                // Hits union rather than replace: an identifier that answered once is a fact
+                // about the vehicle. swept is sticky, because a later run that never reached
+                // this block does not un-sweep it. empty_runs takes the larger, being a
+                // running count each capture carries forward.
+                val hitMap = LinkedHashMap<String, String>()
+                prev?.fullHits?.forEach { hitMap[it.first] = it.second }
+                hitMap.putAll(hits)
+                val sweptNow = b.optBoolean("swept", hits.isNotEmpty())
+                merged[name] = DiscoveredBlock(
+                    name, prefix,
+                    b.optString("header").ifEmpty { prev?.header ?: "" },
+                    (prev?.reconHits.orEmpty() + recon).distinct(),
+                    hitMap.entries.map { it.key to it.value }.toMutableList(),
+                    swept = sweptNow || (prev?.swept ?: false),
+                    emptyRuns = maxOf(b.optInt("empty_runs", 0), prev?.emptyRuns ?: 0),
+                    // Provenance follows the run that actually swept it.
+                    state = if (sweptNow) b.optString("state", "") else prev?.state ?: "",
+                    sweptAt = if (sweptNow) b.optString("swept_at", "") else prev?.sweptAt ?: "")
+            }
+            o.optJSONArray("recon_headers")?.let { a ->
+                for (j in 0 until a.length()) reconHdrs.add(a.optString(j))
+            }
+            if (o.optJSONArray("recon_headers") == null && o.optBoolean("recon_done", false)) {
+                o.optJSONArray("headers_targeted")?.let { a ->
+                    for (j in 0 until a.length()) reconHdrs.add(a.optString(j))
+                }
+            }
+        } catch (_: Exception) { /* unreadable capture: try the next */ }
+    }
+    if (!any || merged.isEmpty()) return null
+    return merged.values.toList() to reconHdrs
+}
+
+internal fun buzz(ctx: Context, ok: Boolean) = runCatching {
     val v = ctx.getSystemService(android.os.Vibrator::class.java) ?: return@runCatching
     val pattern = if (ok) longArrayOf(0, 120, 90, 120) else longArrayOf(0, 400)
     v.vibrate(android.os.VibrationEffect.createWaveform(pattern, -1))
@@ -318,6 +411,27 @@ class CaptureRunner(
                 }
                 ble.cmd("ATSH$vinBroadcast")
             }
+
+            // 22F190 AGAIN, ON THE BROADCAST. It is asked above, but only at the physical
+            // header -- and a battery electric car has no engine ECU, so 7E0 is not there to
+            // answer anything. A 2025 Ioniq 5 answers 22F190 at 7DF, and that is the VIN
+            // that decides whether the run gets its make's hints at all: without it the scan
+            // reached 2 of the 11 headers Hyundai documents, missing 7E4 where the battery
+            // management lives. Not guarded on `ok`, because the question is whether a VIN
+            // was read, not whether some earlier request came back.
+            //
+            // THIS COULD NOT HAVE WORKED UNTIL MULTI-FRAME REASSEMBLY LANDED. 22F190 returns
+            // the VIN as seventeen ASCII bytes, thirteen more than a single Mode-22 frame
+            // carries, so the request returned null on every vehicle ever scanned. The
+            // fallback was already written and was dead code the whole time -- the bug hid
+            // its own workaround, and we diagnosed this car twice without seeing that.
+            if (Discover.vinFrom(raw).isEmpty()) {
+                val onBroadcast = ble.cmd("22F190", 6_000)
+                ble.log("VIN 22F190 @$vinBroadcast -> ${describe(onBroadcast, redact = true)}")
+                if (Discover.vinFrom(onBroadcast.first).isNotEmpty()) {
+                    raw = onBroadcast.first; ok = true
+                }
+            }
             coverage = ""
             vin = if (ok) Discover.vinFrom(raw) else ""
             if (vin.isEmpty()) ble.log("VIN: no 17-char VIN parsed from either header")
@@ -328,6 +442,8 @@ class CaptureRunner(
             // Optional, off by default, and never blocking the scan. Ten characters go out;
             // the six that identify this specific vehicle do not. See VinLookup.
             modelName = ""; modelClean = ""; modelSeries = ""; vpicRepo = ""
+            // Kept apart from modelClean because the vPIC lookup below overwrites that one.
+            var modelFromRecords = ""
             // THE OFFLINE ANSWER FIRST, because we may already have it. vehicles/ ships a
             // pattern -> make/model/year table built from cars people scanned, and until
             // now nothing consulted it: a Subaru whose pattern JF2SJARC is IN the shipped
@@ -339,6 +455,7 @@ class CaptureRunner(
             if (vin.isNotEmpty()) {
                 VehicleId.contributedId(vin)?.let { (_, model) ->
                     if (model.isNotEmpty()) {
+                        modelFromRecords = model
                         modelClean = model
                         modelName = listOfNotNull(info?.year?.toString(), model)
                             .joinToString(" ")
@@ -364,7 +481,40 @@ class CaptureRunner(
             val sib = info?.vin?.let { VehicleId.siblings(it) } ?: emptyList()
             // Looked up once: the screen reports this count and phase 0 sends exactly these.
             // Computing it twice invited the two to disagree.
-            val knownReqs = if (mk.isEmpty()) emptyList() else VehicleId.supportedFor(mk)
+            // OURS FIRST, THEN THE COMMUNITY'S. contributedRequests is what a real car of
+            // this make and model actually answered; supportedFor is what OBDb documents for
+            // the make. Measured beats documented, and asking the measured set first is what
+            // turns a 24-minute wait for a drive-log plan into a 1.7-minute one on a car this
+            // project has mapped before. Neither shortens the sweep that follows -- see
+            // VehicleId.contributedRequests: order, never bounds.
+            // THREE SOURCES, MOST SPECIFIC FIRST. contributedRequests is what a real car of
+            // this make and model answered; supportedForModel is what OBDb documents for
+            // this MODEL; supportedFor is what it documents for the make. Measured beats
+            // documented, and model beats make.
+            //
+            // The model tier was shipped and never called. On a 2025 Ioniq 5 it carries 34
+            // requests across twelve headers -- ten at 7E4 where the battery management
+            // lives, five at 7E5 for the charger, and single entries at 7C6 for the odometer
+            // and 7A0, 730, 7D1 -- which are precisely the modules a blind recon spends a
+            // hundred minutes looking for. Twelve seconds of asking, against that.
+            // EVERY NAME THIS CAR GOES BY, because the sources do not agree and there is no
+            // reason they should. The offline record says "5 Series", which is how both our
+            // own measured lists and OBDb's model sets are keyed. vPIC then overwrites it
+            // with the trim, "535i", which matches neither -- so the confirm pass offered 30
+            // requests instead of 602 and did nothing, twice, on two separate drives.
+            //
+            // vPIC is more specific and better for display, so modelClean keeps it. Lookups
+            // take whichever name hits: series, trim, or what a contributor typed.
+            val modelKeys = listOf(modelFromRecords, modelClean, modelSeries)
+                .filter { it.isNotEmpty() }.distinct()
+            val tierOurs = if (mk.isEmpty()) emptyList() else
+                modelKeys.flatMap { VehicleId.contributedRequests(mk, it) }.distinct()
+            val tierModel = if (mk.isEmpty()) emptyList() else
+                modelKeys.flatMap { VehicleId.supportedForModel(mk, it) }.distinct()
+            val tierMake = if (mk.isEmpty()) emptyList() else VehicleId.supportedFor(mk)
+            val knownReqs = (tierOurs + tierModel + tierMake).distinct()
+            ble.log("known requests: ours=${tierOurs.size} model=${tierModel.size} " +
+                "make=${tierMake.size} for \"$mk\" / ${modelKeys.joinToString("|")}")
             hintNote = if (mk.isEmpty()) "" else {
                 val blocks = VehicleId.blockPrefixes(mk, also = sib)
                 val hdrs = VehicleId.headers(mk, also = sib)
@@ -674,7 +824,34 @@ class CaptureRunner(
             // nothing. The cached branch overwrites this with the fuller line.
             if (stdPids.isNotEmpty()) coverage = "${stdPids.size} standard PIDs found"
 
-            val cached = if (forceDiscover) null else findCached(vinKey)
+            // WHETHER A MAP IS FINISHED IS A QUESTION FOR THE MERGED PROGRESS, not for
+            // whichever single file findCached happens to like. It reads one capture and
+            // asks "was this run stopped" -- and a capture written before blocks carried a
+            // swept flag answers no to every guard there is, so an old complete-looking file
+            // was accepted as a finished map and discovery skipped. Every vehicle in this
+            // project has one of those, which made resuming unreachable on all of them: the
+            // first CAPTURE after a paused session went straight to the drive and mapped
+            // nothing, while twenty blocks sat pending in the file right beside it.
+            //
+            // Pick up where an earlier run stopped, unless the operator asked for a clean
+            // map. Re-map means start over; CAPTURE means continue (D7).
+            val prior = if (forceDiscover) null else findProgress(vinKey)
+            // A map is finished when every block is done AND recon is known to have reached
+            // the end. Blocks alone are not enough: an Ioniq 5 has eleven blocks all holding
+            // hits and no capture that records recon completing, because every one of them
+            // predates the field. Unknown was being read as done, so the vehicle that most
+            // needs mapping would have skipped it.
+            //
+            // Every map made before today was made by a parser that dropped multi-frame
+            // replies, so re-running recon on those vehicles is not waste -- it is how the
+            // wide identifiers get found at all. Once a run records its headers, this stops
+            // firing for that vehicle.
+            val blocksLeft = prior?.first?.any {
+                !(it.swept && (it.fullHits.isNotEmpty() || it.emptyRuns >= 2))
+            } ?: false
+            val reconUnknown = prior != null && prior.second.isEmpty()
+            val unfinished = blocksLeft || reconUnknown
+            val cached = if (forceDiscover || unfinished) null else findCached(vinKey)
             if (cached != null) {
                 val (file, plan, skipped) = cached
                 // WHAT THIS CAR ALREADY HAS, on screen, so "do I need to scan this again?"
@@ -713,18 +890,31 @@ class CaptureRunner(
             } else {
                 // No VIN is NOT a reason to reuse someone else's map. Discovering again
                 // costs ten minutes; logging the wrong car's DIDs costs the whole drive.
+                discover.resumeBlocks = prior?.first ?: emptyList()
+                discover.resumeReconHeaders = prior?.second ?: emptySet()
                 status = when {
-                    forceDiscover -> "re-mapping this vehicle..."
+                    forceDiscover -> "re-mapping from scratch — $SESSION_MAP_MINUTES min, then the drive"
+                    prior != null -> "continuing the map — " +
+                        "${prior.first.count { it.swept && it.fullHits.isNotEmpty() }} block(s) " +
+                        "already done"
                     vinKey.isEmpty() -> "VIN unreadable — mapping from scratch to be safe"
                     else -> "new vehicle${if (wmi.isNotEmpty()) " ($wmi)" else ""} — mapping its blocks"
                 }
-                // Was a hardcoded "about 10 minutes" on runs measured at 19.5 -- roughly
-                // half the truth, and shown beside a percentage that reset each phase. The
-                // runner now estimates from its own probe rate; this line only has to be
-                // true before there is anything to measure.
-                detail = "stay parked, engine warm — this usually takes 15–20 minutes"
                 phase = CapPhase.DISCOVER
 
+                // EVERY session is a bite, Re-map included. Re-map means "discard what is
+                // known and begin again", not "begin again and sit here for an hour" -- a
+                // fresh start converges over drives exactly as a resumed one does, and the
+                // only thing an unbudgeted variant ever bought was a single-sitting baseline
+                // run that turned out to be unnecessary: the same count arrives when the
+                // incremental map completes, and carries per-block state stamps besides.
+                //
+                // It also removes the one way left to end a session badly. Unbudgeted, the
+                // only way to stop a Re-map early was to stop it by hand, which marks the
+                // capture aborted and refuses the drive -- the exact outcome this design
+                // exists to make unnecessary.
+                discover.budgetMs = SESSION_MAP_MINUTES * 60_000L
+                discover.excludedHeaders = if (mk.isEmpty()) emptySet() else VehicleId.excludedHeaders(mk, also = sib)
                 discover.hintedBlocks = if (mk.isEmpty()) emptyList() else VehicleId.blockPrefixes(mk, also = sib)
                 discover.hintedHeaders = if (mk.isEmpty()) emptyList() else VehicleId.headers(mk, also = sib)
                 discover.hinted29 = if (mk.isEmpty()) emptyList() else VehicleId.headers29(mk, also = sib)
@@ -732,6 +922,33 @@ class CaptureRunner(
                     VehicleId.unaddressable(mk, sib).any { it.first == "6F1" }
                 discover.wmiIn = wmi
                 discover.vinKeyIn = vinKey
+
+                // THE ONE FIGURE THAT WAS STILL A CONSTANT: this line said "15-20 minutes"
+                // to every vehicle alike, and a GM Global B truck was told that for a run
+                // whose arithmetic floor was 26 (#7). Everything AFTER the first probes is
+                // already honest -- overall() sizes the job from the header count and the
+                // block count and re-derives the ETA from the run's own measured rate.
+                //
+                // WHAT IT IS NOT REPLACED WITH IS A DERIVED NUMBER. The dominant unknown is
+                // how many modules answer, and that is precisely what recon is about to find
+                // out: Hyundai hints twelve headers and two answer, Ford eleven and four.
+                // Sizing from the headers we intend to TRY predicts 4.9x the real run on an
+                // Ioniq and 2.2x on a Ranger -- the same defect as the old constant, pointing
+                // the other way, and an estimate wrong by 2x is one people stop reading.
+                //
+                // So: the span across the vehicles actually run, and the reason it varies.
+                // A real figure follows within seconds of probing starting, which is the
+                // first moment one exists.
+                //
+                // THIS RANGE IS PROVISIONAL AND SHOULD BE REGENERATED. No run of this app
+                // has ever been timed -- the capture file had no clock until now -- so 8-26
+                // is probe counts divided by ~12 probes/s, and that rate was measured by
+                // obd-gauge-cluster on its hardware, not by us on ours. It reads like
+                // experience and is arithmetic on a borrowed constant. Once a handful of
+                // captures carry elapsed_s, compute the real rate and the real span from
+                // them and replace this.
+                detail = "stay parked, engine warm — 8 to 26 min, depending on how many " +
+                    "modules answer; the estimate appears once probing starts"
 
                 // Exact DIDs known to answer on this make, asked by name in phase 0. This is
                 // the cheap, precise mechanism: on a Ford Ranger it reaches the six
@@ -741,6 +958,8 @@ class CaptureRunner(
                 // in full -- so the whole-block coverage arrives anyway, for the blocks that
                 // actually answer.
                 discover.knownRequests = knownReqs
+                discover.knownModel = modelClean
+                discover.knownTiers = Triple(tierOurs.size, tierModel.size, tierMake.size)
                 discover.hintMake = mk
 
                 // Block-level fallback, only where there is no census to ask from. 16 makes
@@ -774,7 +993,16 @@ class CaptureRunner(
                     // and logPlan was therefore set -- started a six-hour drive log instead
                     // of stopping. Stopping during recon happened to be safe only because no
                     // full sweep had run yet, so there was no plan to act on.
-                    if (discover.aborted) {
+                    // PAUSED IS NOT STOPPED. The budget ended this session tidily at a block
+                    // boundary with nothing wrong, so the run does what decision D2 asks for:
+                    // advance the map, then log the drive. Only a run the operator actually
+                    // stopped, or one that found nothing, refuses to go on.
+                    if (discover.paused && plan != null && plan.second.isNotEmpty()) {
+                        status = "mapped for $SESSION_MAP_MINUTES min — " +
+                            "${discover.blocksFound} blocks known, logging the drive now"
+                        detail = "the rest of the map continues next time you plug in"
+                        driveStep(plan)
+                    } else if (discover.aborted) {
                         LogService.stop(ctx)
                         phase = CapPhase.FAILED
                         buzz(ctx, false)
@@ -784,7 +1012,7 @@ class CaptureRunner(
                             "discover JSON is saved with what recon found."
                         else
                             "${plan.second.size} DIDs were read before stopping and are saved. " +
-                            "Run CAPTURE again to finish the sweep."
+                            "CAPTURE picks up where this left off."
                     } else if (plan == null || plan.second.isEmpty()) {
                         LogService.stop(ctx)
                         phase = CapPhase.FAILED
@@ -892,6 +1120,27 @@ class CaptureRunner(
     }
 
     /** Newest usable map for this car: right VIN key, has blocks, and finished cleanly. */
+    /**
+     * What an earlier run on this vehicle already established, complete or not.
+     *
+     * findCached answers "is there a finished map to drive on". This answers the different
+     * question a resumed run asks: which blocks are known, which of them are genuinely
+     * swept, and did recon reach the end. An aborted capture is the whole point here, where
+     * findCached rightly refuses it.
+     *
+     * Older captures carry no swept flag. They are read as swept when they hold hits and
+     * pending when they do not, which is the reading that cannot lose data: a block that
+     * really was empty simply gets asked once more.
+     */
+    private fun findProgress(key: String): Pair<List<DiscoveredBlock>, Set<String>>? {
+        if (key.isEmpty()) return null
+        val dir = File(ctx.getExternalFilesDir(null), "logs")
+        val files = dir.listFiles { f -> f.name.startsWith("discover-") && f.name.endsWith(".json") }
+            ?.sortedBy { it.lastModified() }        // oldest first: newer facts win
+            ?.takeLast(MAX_PROGRESS_FILES) ?: return null
+        return mergeProgress(files.mapNotNull { runCatching { it.readText() }.getOrNull() }, key)
+    }
+
     private fun findCached(key: String): Triple<File, Pair<String, List<String>>, Int>? {
         if (key.isEmpty()) return null
         val dir = File(ctx.getExternalFilesDir(null), "logs")
@@ -901,7 +1150,22 @@ class CaptureRunner(
             try {
                 val o = JSONObject(f.readText())
                 if (o.optString("vin_key") != key) continue
-                if (o.optBoolean("aborted", false)) continue      // incomplete: map again
+                // NOT ABORTED IS NOT THE SAME AS FINISHED, since the session budget landed.
+                // A paused run ends tidily and writes aborted:false, so on this test alone a
+                // ten-minute bite would look like a finished map and every later CAPTURE
+                // would skip discovery -- mapping a vehicle once, briefly, and never again.
+                // That is the whole of D1 and D2 undone by one boolean.
+                if (o.optBoolean("aborted", false)) continue      // stopped: map again
+                if (o.optBoolean("paused", false)) continue       // budget: more to do
+                // recon_done is absent on captures written before it existed. Those predate
+                // resuming entirely and were complete-or-aborted, so the old test still
+                // decides them; only files that carry the field are held to it.
+                if (o.has("recon_done") && !o.optBoolean("recon_done")) continue
+                val unfinished = (0 until (o.optJSONArray("detail")?.length() ?: 0)).any { i ->
+                    val b = o.optJSONArray("detail")?.optJSONObject(i)
+                    b != null && b.has("swept") && !b.optBoolean("swept")
+                }
+                if (unfinished) continue                          // blocks still queued
                 val det = o.optJSONArray("detail") ?: continue
                 val byHeader = LinkedHashMap<String, MutableList<String>>()
                 for (i in 0 until det.length()) {

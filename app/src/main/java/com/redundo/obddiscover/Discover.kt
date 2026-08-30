@@ -76,12 +76,31 @@ object Discover {
     val OFFSETS = listOf(0x00, 0x01, 0x02, 0x03, 0x40, 0x80, 0xC0)
 
     /**
-     * Assumed block count before recon finishes, for sizing the progress bar only.
+     * Floor for the assumed block count before recon finishes, for sizing the estimate.
      *
      * Measured: 9 on a Subaru, 15 on a Ford, 16-17 on a BMW. Set above all of them so the
      * estimate rarely has to grow mid-run, which is the direction that makes a bar reverse.
+     *
+     * IT WAS CALIBRATED ON THE WRONG CARS. A GM Global B truck answers with 38 blocks and
+     * our own Silverado with 40 -- double this. On that truck the sweep was sized at
+     * 20 x 256 = 5,120 probes when the truth was 9,728, so the estimate ran about a quarter
+     * low for the whole of recon and then jumped a third when recon ended and the real count
+     * landed. That is the underestimate reported in #7: the count DOES enter the arithmetic,
+     * but until recon finishes it enters as this constant.
      */
     const val BLOCK_PRIOR = 20
+
+
+    /**
+     * The block count to size the sweep with before recon has counted them.
+     *
+     * The hint table already knows roughly how many blocks a make has -- 32 for GM against
+     * a measured 38-40, 7 for Subaru against 9 -- and that is strictly better information
+     * than one constant for every vehicle. Taking the larger of the two keeps the existing
+     * bias: over-estimating means the denominator DROPS when recon ends and the bar jumps
+     * forward, which is the direction that does not feel broken.
+     */
+    fun blockPrior(hintedBlocks: Int): Int = maxOf(BLOCK_PRIOR, hintedBlocks)
 
     /**
      * BMW extended addressing. Written "6F1@12": tester 6F1, target byte 12, RX filter 612.
@@ -335,6 +354,36 @@ data class DiscoveredBlock(
     val header: String,
     val reconHits: List<String>,
     val fullHits: MutableList<Pair<String, String>> = mutableListOf(),   // request to payload
+    /**
+     * Whether all 256 offsets of this block have actually been asked.
+     *
+     * WITHOUT THIS A RUN CANNOT BE RESUMED HONESTLY. A block the sweep never reached and a
+     * block the sweep finished and found nothing in are both "no full hits", and a resumed
+     * run that cannot tell them apart either re-does work it has done or skips work it has
+     * not. The file has to say which.
+     */
+    var swept: Boolean = false,
+    /**
+     * How many SEPARATE runs have swept this block and found nothing in it.
+     *
+     * An empty block is never treated as done -- ten of twelve captures contain no empty
+     * blocks at all, so re-queueing them costs nothing on a healthy car and repairs an
+     * interrupted one by itself. But a car really can contradict its own recon, so the
+     * escape hatch is repetition across runs: seen empty twice, in different sessions, it is
+     * believed. One run cannot decide this, because one run is exactly what an outage is.
+     */
+    var emptyRuns: Int = 0,
+    /**
+     * The vehicle state this block was swept in, and when.
+     *
+     * A map built across several sessions is a blend, and without this nobody can unpick it.
+     * A block swept at a cold soak and a block swept at warm idle are answers to different
+     * questions, and merging them silently produces a record that is true of no vehicle in
+     * any single state. Recorded per block rather than per capture, because in a resumed map
+     * the capture-level label only describes the session that happened to finish it.
+     */
+    var state: String = "",
+    var sweptAt: String = "",
 )
 
 class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
@@ -383,6 +432,19 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
     private var etaSecs = 0.0
 
     /**
+     * The FIRST estimate this run committed to, kept so the file can grade it.
+     *
+     * An estimate that only ever appears on screen is never checked against anything: the
+     * run ends, the number is gone, and the next argument about whether it was any good is
+     * settled by recollection. Written beside elapsed_s, so every capture carries its own
+     * prediction and its own outcome and nobody has to remember either (#7, #10).
+     *
+     * The first one rather than the last, because the last is near zero by construction and
+     * grades nothing. This is the number a person actually plans around.
+     */
+    private var etaFirstSecs = 0.0
+
+    /**
      * Sweep cost cannot be known until recon ends, so until then it is a PRIOR, not an
      * extrapolation.
      *
@@ -421,6 +483,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
         // it is the mistake the progress bar already made once.
         etaSecs = if (etaSecs <= 0.0) estimate
                   else etaSecs * (1 - Discover.ETA_SMOOTH) + estimate * Discover.ETA_SMOOTH
+        if (etaFirstSecs <= 0.0) etaFirstSecs = etaSecs
         val left = etaSecs.toLong()
         eta = when {
             left <= 0 -> ""
@@ -608,6 +671,70 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
      * operator is sitting in a parked car deciding whether this is working.
      */
     var hintedBlocks: List<Int> = emptyList()
+
+    /** Headers this make must not be probed on at all. See VehicleId.excludedHeaders. */
+    var excludedHeaders: Set<String> = emptySet()
+
+    /**
+     * Progress carried in from an earlier run on this same vehicle.
+     *
+     * A map is a queue of independent block jobs, each about a minute, and until now the
+     * position in that queue was thrown away the moment a run ended early -- so a scan that
+     * got 80% of the way through a GM truck was worth exactly as much as one that never
+     * started. Resuming needs three facts and no more: which blocks exist, which of them
+     * have actually been swept end to end, and whether recon finished.
+     *
+     * EMPTY IS NOT DONE. A block swept with no hits comes back on the queue, because ten of
+     * twelve captures contain no empty blocks at all -- so re-queueing costs nothing on a
+     * healthy car, and on an interrupted one it repairs the outage by itself with no
+     * threshold to tune. Believed only after two separate runs have found it empty, since
+     * one run finding a block empty is exactly what an outage looks like.
+     */
+    var resumeBlocks: List<DiscoveredBlock> = emptyList()
+
+    /**
+     * Headers whose recon an earlier run carried all the way to the end.
+     *
+     * Recon is the expensive half and the only half that could not be picked up: 1,792
+     * probes for one header -- ten minutes on an Ioniq 5 -- and eight live headers is 82
+     * minutes before a single block gets swept. A header is the natural unit because recon
+     * selects one, walks all 256 prefixes at seven offsets, and moves on; finishing one
+     * rules out everything in it, and finishing none rules out nothing.
+     *
+     * Per header rather than one flag, because a run interrupted after two of eight headers
+     * has genuinely finished those two, and making it repeat them is the difference between
+     * a map that converges over a week and one that never gets past the first session.
+     */
+    var resumeReconHeaders: Set<String> = emptySet()
+
+    /**
+     * How long this session is willing to spend mapping before handing over to the drive.
+     *
+     * A map is now a queue that survives being put down, so there is no longer any reason to
+     * ask for two hours in one sitting. Ten minutes of mapping and then the drive somebody
+     * was taking anyway converges a vehicle over a week of ordinary use, and every session
+     * ends with a drive log rather than with a decision about whether to keep waiting.
+     *
+     * Checked at block boundaries only. A block stopped halfway is pending, not empty, and
+     * the point of a budget is to end tidily rather than wherever the clock happens to fall.
+     * Zero means no limit, which is what a deliberate full map wants.
+     */
+    var budgetMs: Long = 0L
+
+    /** Set when the budget ended the run. NOT the same as aborted: nothing went wrong. */
+    var paused by mutableStateOf(false); private set
+
+    private fun outOfTime(): Boolean =
+        budgetMs > 0 && System.currentTimeMillis() - runStartMs >= budgetMs
+
+    /**
+     * Something the operator can still do something about, while they are standing there.
+     *
+     * A capture that records nine consecutive empty blocks is a ruined run discovered
+     * afterwards; a message at the third one is a run somebody saves by turning the ignition
+     * back on. Cleared as soon as a block answers again.
+     */
+    var warning by mutableStateOf(""); private set
     /** Extra headers this make is known to use, e.g. Toyota's 700. */
     var hintedHeaders: List<String> = emptyList()
 
@@ -633,6 +760,18 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
     var knownRequests: List<Pair<String, String>> = emptyList()
 
     /**
+     * Where the known requests came from, written into the capture.
+     *
+     * The confirm pass has now silently done nothing on two separate runs and both diagnoses
+     * from reading the source were wrong. A count that says only "30 offered" cannot
+     * distinguish an empty measured record from a model name that did not match from an
+     * asset that never loaded -- so the file records the model it looked up and what each
+     * tier returned, and the next run diagnoses itself instead of costing a drive.
+     */
+    var knownModel: String = ""
+    var knownTiers: Triple<Int, Int, Int> = Triple(0, 0, 0)
+
+    /**
      * The make the hint tables resolved to, or "" if none did.
      *
      * Recorded because `preset` was a hardcoded literal `"generic"` and an outside reader
@@ -651,7 +790,9 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
         nrcByHeader.clear(); refusals.clear(); timeouts = 0; retries = 0; consecutiveDead = 0; curHeader = ""
         stopping = false; aborted = false; matchedModels = emptyList(); allHits = emptyList()
         runStartMs = System.currentTimeMillis()
-        knownTotal = 0; reconTotalP = 0; estBlocks = Discover.BLOCK_PRIOR; pctFloor = 0; etaSecs = 0.0
+        knownTotal = 0; reconTotalP = 0; pctFloor = 0; etaSecs = 0.0; etaFirstSecs = 0.0
+        paused = false
+        estBlocks = Discover.blockPrior(hintedBlocks.size)
 
         ble.runOnWorker {
             var f: File? = null
@@ -695,7 +836,13 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 // 6F1 expands into one entry per curated target. headers() excludes it (it
                 // is not a plain three-character CAN id), so this is the only route to it.
                 val ext = if (hintedExt) Discover.BMW_TARGETS.map { "6F1@$it" } else emptyList()
-                for (h in (Discover.HEADERS_11BIT + hintedHeaders + ext).distinct()) {
+                // Applied to the UNION, not to the hints. 7E2 arrives from the
+                // make-independent default and 7E5 from the hint table, and both sit inside
+                // the range the exclusion is about -- filtering either source alone would
+                // leave the other in. See VehicleId.excludedHeaders.
+                val censusHeaders = (Discover.HEADERS_11BIT + hintedHeaders + ext)
+                    .distinct().filter { it !in excludedHeaders }
+                for (h in censusHeaders) {
                     if (stopFlag) break
                     selectHeader(h)
                     val (ok, _, nak) = ask("0100")
@@ -757,6 +904,85 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 }
 
                 // --- phase 1: recon -------------------------------------------------
+                // Everything an earlier run on this vehicle already established. Blocks
+                // come back with their swept flag intact, so the sweeps below skip what is
+                // genuinely finished and redo what only looked finished.
+                if (resumeBlocks.isNotEmpty()) {
+                    var done = 0; var requeued = 0; var asleep = 0
+                    for (b in resumeBlocks) {
+                        // CARRIED EVEN WHEN ITS HEADER IS SILENT TODAY. Only found.values is
+                        // written to the capture, so dropping a block here erases it from the
+                        // file the NEXT session resumes from -- one module failing to answer
+                        // 0100 on one plug-in would permanently delete an hour of sweeping,
+                        // silently, which is the exact failure this whole design exists to
+                        // prevent. It is carried and simply not swept; the header may well
+                        // answer again next time.
+                        found[b.name] = b
+                        if (!liveHeaders.contains(b.header)) { asleep++; continue }
+                        if (b.swept && b.fullHits.isNotEmpty()) done++
+                        else if (b.swept) requeued++
+                    }
+                    blocksFound = found.size
+                    ble.log("resuming: ${found.size} block(s) known, $done already swept, " +
+                        "$requeued empty and re-queued" +
+                        (if (asleep > 0) ", $asleep on headers not answering today" else "") +
+                        if (resumeReconHeaders.isEmpty()) ""
+                        else ", recon done on ${resumeReconHeaders.sorted().joinToString(" ")}")
+
+                    // --- the overlap block -------------------------------------------
+                    //
+                    // One block, re-swept, costing about a minute. It was asked for as
+                    // insurance against missing something at a session boundary, and it buys
+                    // something larger: it is the only cheap way to find out whether two
+                    // sessions are comparable AT ALL.
+                    //
+                    // A map assembled over several sessions is inherently multi-state. Same
+                    // hits as last time and the car is in a comparable state; different hits
+                    // and it is not -- learned in sixty seconds rather than discovered in a
+                    // merged map weeks later. This morning's BMW is what that costs: 195
+                    // identifiers that three prior runs found consistently, absent, and no
+                    // way to know until the file was read at a desk.
+                    //
+                    // The union is kept either way. An identifier that answered once is a
+                    // fact about the vehicle; the state it answered in is a separate fact,
+                    // and recording that per block is phase 4.
+                    val overlap = found.values.lastOrNull {
+                        it.swept && it.fullHits.isNotEmpty() && liveHeaders.contains(it.header)
+                    }
+                    if (overlap != null && !stopFlag) {
+                        phase = "overlap"
+                        progress = "re-checking ${overlap.name} against the last session"
+                        val before = overlap.fullHits.map { it.first }.toSet()
+                        val now = LinkedHashSet<String>()
+                        selectHeader(overlap.header)
+                        for (off in 0..255) {
+                            if (stopFlag) break
+                            val req = "%04X%02X".format(overlap.prefix, off)
+                            val (present, payload, _) = ask(req)
+                            probes++; probesSweep++
+                            if (present && payload != null) {
+                                now.add(req)
+                                if (req !in before) overlap.fullHits.add(req to payload)
+                            }
+                        }
+                        val lost = before - now
+                        val gained = now - before
+                        if (!stopFlag && (lost.isNotEmpty() || gained.isNotEmpty())) {
+                            // Naming both states turns "something changed" into something the
+                            // operator can act on -- most of the time they will recognise the
+                            // difference and either fix it or accept it deliberately.
+                            val was = overlap.state.ifEmpty { "an unrecorded state" }
+                            warning = "${overlap.name} answered differently than last session " +
+                                "(${lost.size} gone, ${gained.size} new) — last swept in " +
+                                "\"$was\", now \"${Session.captureState}\""
+                            ble.log("WARNING: $warning")
+                        } else if (!stopFlag) {
+                            ble.log("overlap ${overlap.name}: ${now.size} identifiers, " +
+                                "unchanged — sessions are comparable")
+                        }
+                    }
+                }
+
                 // --- phase 0: ask for what is already known, by name ------------------
                 //
                 // Cheapest and most certain step there is. These are supported-command
@@ -783,8 +1009,19 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     selectHeader(hdr)
                     for (req in reqs) {
                         if (stopFlag) break
-                        val (present, payload, _) = ask(req)
+                        val (present, payload, nak) = ask(req)
                         probes++; probesKnown++; kdone++
+                        // A REFUSAL IS PROOF THE MODULE SPEAKS THE SERVICE. This was only
+                        // credited during recon, so a header that answered "no such
+                        // identifier" here and was never reached by recon looked, in the
+                        // file, like a header that says nothing at all.
+                        //
+                        // A 2025 Ioniq 5 did exactly that: 7E4 replied 0x31 requestOutOfRange
+                        // to phase 0 -- understanding Mode 22 and declining those particular
+                        // DIDs -- and the capture still reported speaks_mode22 as 7DF and 7E2
+                        // only, because the budget ended before recon got there. The evidence
+                        // was in the run and thrown away by the writer.
+                        if (nak) speaksMode22.add(hdr)
                         if (present && payload != null) {
                             knownHits.getOrPut("%s|%s".format(hdr, req.substring(0,4))) { mutableListOf() }
                                 .add(req to payload)
@@ -805,15 +1042,132 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     }
                 }
                 blocksFound = found.size
-                didsFound = 0     // phase 2 recounts these from the full sweep
+                // Phase 0's hits are recounted by the sweeps below, so they reset to zero --
+                // but a RESUMED run does not re-sweep what is already finished, so those
+                // identifiers would never be counted at all. The screen then reads "24 blocks
+                // · 30 DIDs" on a vehicle whose map holds 703, which looks exactly like a map
+                // that lost everything. The drive plan was always right; only the number was
+                // wrong, and a number that says the work is gone is its own kind of wrong.
+                didsFound = found.values
+                    .filter { it.swept && it.fullHits.isNotEmpty() }
+                    .sumOf { it.fullHits.size }
+
+                // One block, swept end to end. Used twice: once on what phase 0 already
+                // proved, and once on everything recon turns up afterwards.
+                var swept = 0
+                var emptyRun = 0
+                val swept0 = HashSet<String>()
+                fun sweepOne(b: DiscoveredBlock, denom: () -> Int, exact: Boolean) {
+                    swept0.add(b.name)
+                    selectHeader(b.header)
+                    val hitsBefore = b.fullHits.size
+                    for (off in 0..255) {
+                        if (stopFlag) return                  // partway: still pending
+                        val req = "%04X%02X".format(b.prefix, off)
+                        val (present, payload, _) = ask(req)
+                        probes++; probesSweep++
+                        if (present && payload != null) {
+                            b.fullHits.add(req to payload)
+                            didsFound++                     // total, not per-block
+                        }
+                        if (off % 16 == 0) {
+                            // Only once recon has ended is the block count final; before
+                            // that the prior stands, or the bar would size the whole run
+                            // from the handful of blocks phase 0 happened to seed.
+                            if (exact) estBlocks = found.size
+                            overall(probesKnown + probesRecon + probesSweep)
+                            progress = "sweep ${b.name} (${swept + 1}/${denom()})  " +
+                                "%02X/FF  —  $didsFound DIDs found".format(off)
+                        }
+                    }
+                    // Only a sweep that RAN TO THE END has asked all 256 offsets. A stop
+                    // partway through leaves the block pending, not empty -- otherwise the
+                    // block being swept when the operator hit stop would be recorded as a
+                    // fact about the vehicle.
+                    b.swept = true
+                    b.state = Session.captureState
+                    b.sweptAt = Obd.isoUtc(System.currentTimeMillis())
+                    if (b.fullHits.size == hitsBefore) {
+                        b.emptyRuns++
+                        emptyRun++
+                        // THREE, because a healthy capture has never produced one. Ten of
+                        // twelve contain no empty block at all -- every block recon finds,
+                        // the sweep finds data in, which follows from a block only entering
+                        // the sweep because recon already answered there. Three in a row has
+                        // only ever happened while a vehicle was away.
+                        //
+                        // The transport looks perfectly healthy while this happens: the BMW
+                        // that lost nine blocks to a refuelling stop recorded 0 timeouts and
+                        // 0 retries, because the DME was answering the whole time, just with
+                        // conditionsNotCorrect instead of data. consecutiveDead counts dead
+                        // probes and there were none, which is why nothing noticed.
+                        if (emptyRun >= 3 && warning.isEmpty()) {
+                            warning = "$emptyRun blocks in a row answered nothing — " +
+                                "is the vehicle still on?"
+                            ble.log("WARNING: $warning")
+                            buzz(ctx, false)
+                        } else if (emptyRun >= 3) {
+                            warning = "$emptyRun blocks in a row answered nothing — " +
+                                "is the vehicle still on?"
+                        }
+                    } else {
+                        b.emptyRuns = 0
+                        emptyRun = 0
+                        warning = ""
+                    }
+                    swept++
+                }
+
+                // --- phase 1: sweep what phase 0 PROVED, before recon looks for more ---
+                //
+                // ORDER, NOT SCOPE. Every block here still gets swept; recon still runs in
+                // full afterwards. What changes is which twelve minutes come first.
+                //
+                // Recon is 1,792 probes per live header -- on a 2025 Ioniq 5 with ten live
+                // headers that is about a hundred minutes at the rate that car achieves,
+                // spent looking for blocks nobody has documented. Phase 0 has by this point
+                // already landed hits in the blocks somebody HAS documented, and under the
+                // old order those sat unswept behind the entire search. An operator who
+                // stopped at twenty minutes kept nothing but a list of block names.
+                //
+                // Swept first, the documented modules -- battery, charger, motor, odometer
+                // -- are complete in about a quarter of an hour, and the open-ended search
+                // is what gets deferred. That is the half worth deferring: it is the half
+                // with no known payoff.
+                // A block is finished only if it was swept AND something answered. Swept
+                // and empty goes round again -- unless two separate runs have now found it
+                // empty, at which point the vehicle has contradicted its own recon twice and
+                // is believed.
+                fun finished(b: DiscoveredBlock) =
+                    b.swept && (b.fullHits.isNotEmpty() || b.emptyRuns >= 2)
+                val seeded = found.values
+                    .filter { liveHeaders.contains(it.header) }
+                    .filterNot { finished(it) }
+                if (seeded.isNotEmpty()) {
+                    phase = "sweep"
+                    ble.log("sweeping ${seeded.size} block(s) proved by phase 0, before recon")
+                    for (b in seeded) {
+                        if (stopFlag) break
+                        if (outOfTime()) { paused = true; break }
+                        sweepOne(b, { seeded.size }, exact = false)
+                    }
+                }
 
                 phase = "recon"
-                val reconTotal = liveHeaders.size * 256
+                // Headers an earlier run finished are not walked again. One it was
+                // interrupted partway through ruled nothing out, so it runs in full.
+                val reconDoneHdrs = LinkedHashSet(resumeReconHeaders.filter { it in liveHeaders })
+                val reconTodo = liveHeaders.filter { it !in reconDoneHdrs }
+                if (reconDoneHdrs.isNotEmpty()) {
+                    ble.log("recon already complete on ${reconDoneHdrs.joinToString(" ")}; " +
+                        "${reconTodo.size} header(s) left")
+                }
+                val reconTotal = reconTodo.size * 256
                 // In PROBES, not blocks: recon asks all seven offsets of every block with no
                 // early exit, so this is the real cost and the one the bar must be scaled by.
                 reconTotalP = reconTotal * Discover.OFFSETS.size
                 var reconDone = 0
-                for (h in liveHeaders) {
+                for (h in reconTodo) {
                     if (stopFlag) break
                     selectHeader(h)                         // once per header
                     // Hinted high-bytes first, then everything else. Same 256 blocks
@@ -822,6 +1176,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     val order = (hintedHi + (0..255).filter { it !in hintedHi })
                     for (hi in order) {
                         if (stopFlag) break
+                        if (outOfTime()) { paused = true; break }
                         val prefix = (Discover.SERVICE shl 8) or hi
                         val name = "%04Xxx".format(prefix)
                         val hitsHere = ArrayList<String>()
@@ -844,12 +1199,23 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                             // from, so the prior stands.
                             // No extrapolation -- see overall(). The prior stands until
                             // recon ends and the real count is known.
-                            estBlocks = maxOf(Discover.BLOCK_PRIOR, blocksFound)
+                            estBlocks = maxOf(Discover.blockPrior(hintedBlocks.size), blocksFound)
                             overall(probesKnown + probesRecon)
                             progress = "recon $h  %02X/FF  —  $blocksFound blocks so far".format(hi)
                         }
                     }
+                    // Only a header walked to the last prefix has ruled anything out. Stop
+                    // partway and it stays on the list, because a half-searched header is
+                    // indistinguishable from one with nothing in the part not reached.
+                    if (!stopFlag && !paused) reconDoneHdrs.add(h)
+                    if (paused) break
                 }
+
+                // Recon reached the end only if nothing stopped it. A resumed run skips
+                // recon when this was true, and repeats it when it was not -- an interrupted
+                // recon has not ruled anything out.
+                // Complete when every header that answered has been walked to the end.
+                val reconComplete = liveHeaders.isNotEmpty() && liveHeaders.all { it in reconDoneHdrs }
 
                 // Documented blocks get a FULL sweep even when recon drew a blank in them.
                 // Recon samples seven offsets; a block whose DIDs all sit elsewhere reads as
@@ -866,36 +1232,22 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 }
                 blocksFound = found.size
 
-                // --- phase 2: full sweep of what recon found ------------------------
+                // --- phase 2: sweep everything recon added -------------------------
+                // Blocks phase 1 already swept are skipped by name, never re-asked.
                 phase = "sweep"
-                var swept = 0
-                val swept0 = HashSet<String>()
-                for (b in found.values) {
+                for (b in found.values.toList()) {
                     if (stopFlag) break
-                    swept0.add(b.name)
-                    selectHeader(b.header)
-                    for (off in 0..255) {
-                        if (stopFlag) break
-                        val req = "%04X%02X".format(b.prefix, off)
-                        val (present, payload, _) = ask(req)
-                        probes++; probesSweep++
-                        if (present && payload != null) {
-                            b.fullHits.add(req to payload)
-                            didsFound++                     // total, not per-block
-                        }
-                        if (off % 16 == 0) {
-                            // Exact from here: recon is done, so the block count is final.
-                            estBlocks = found.size
-                            overall(probesKnown + probesRecon + probesSweep)
-                            progress = "sweep ${b.name} (${swept + 1}/${found.size})  " +
-                                "%02X/FF  —  $didsFound DIDs found".format(off)
-                        }
-                    }
-                    swept++
+                    if (b.name in swept0 || finished(b)) continue
+                    if (!liveHeaders.contains(b.header)) continue   // carried, not sweepable
+                    if (outOfTime()) { paused = true; break }
+                    sweepOne(b, { found.size }, exact = true)
                 }
 
+                // Stamped once, before writing, so the filename and finished_at agree
+                // rather than differing by however long serialising takes.
+                val finishedMs = System.currentTimeMillis()
                 val dir = File(ctx.getExternalFilesDir(null), "logs").apply { mkdirs() }
-                f = File(dir, "discover-${System.currentTimeMillis()}.json")
+                f = File(dir, "discover-$finishedMs.json")
                 outFile = f
                 f.bufferedWriter().use { out ->
                     out.write("{\n")
@@ -905,6 +1257,21 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     // is no way to tell a stale capture from a current one except by
                     // remembering, and nobody remembers.
                     out.write("\"build\": \"${BuildTag.ID}\",\n")
+                    // WHEN, AND FOR HOW LONG. The filename carries an epoch stamp, but that
+                    // is when the file was WRITTEN, not when the run began -- and it does not
+                    // survive a copy or a rename. Without these, two captures of one vehicle
+                    // cannot be ordered, a stage result cannot be paired with the drive log
+                    // that followed it, and a run-time estimate can never be graded against a
+                    // measurement, which leaves it a guess forever (#7, #10). The drive CSV
+                    // has stamped every row since the beginning; it was the file saying what
+                    // the vehicle IS that had no clock. Same format, so they sort together.
+                    out.write("\"started_at\": \"${Obd.isoUtc(runStartMs)}\",\n")
+                    out.write("\"finished_at\": \"${Obd.isoUtc(finishedMs)}\",\n")
+                    out.write("\"elapsed_s\": ${"%.1f".format((finishedMs - runStartMs) / 1000.0)},\n")
+                    // The prediction, beside the outcome, so the estimator grades itself.
+                    // null when the run ended before it was willing to say anything.
+                    out.write("\"eta_first_s\": " +
+                        (if (etaFirstSecs > 0.0) "%.1f".format(etaFirstSecs) else "null") + ",\n")
                     // The condition the car was in. Without it a capture cannot be compared
                     // with anyone else's, and a constant cannot be told from an untouched field.
                     out.write("\"state\": \"${Session.captureState}\",\n")
@@ -920,6 +1287,10 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     out.write("\"make\": \"$hintMake\", ")
                     out.write("\"headers_added\": [${hintedHeaders.filter { it !in Discover.HEADERS_11BIT }.joinToString(", ") { "\"$it\"" }}], ")
                     out.write("\"blocks_hinted\": ${hintedBlocks.size}, ")
+                    out.write("\"headers_excluded\": [${excludedHeaders.sorted().joinToString(", ") { "\"$it\"" }}], ")
+                    out.write("\"model_looked_up\": \"$knownModel\", ")
+                    out.write("\"tiers\": {\"ours\": ${knownTiers.first}, " +
+                        "\"obdb_model\": ${knownTiers.second}, \"obdb_make\": ${knownTiers.third}}, ")
                     out.write("\"known_requests_offered\": ${knownRequests.size}, ")
                     out.write("\"known_requests_sent\": $probesKnown},\n")
                     out.write("\"probe_breakdown\": {\"known\": $probesKnown, ")
@@ -949,6 +1320,11 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     // whose meanings the standard already defines, and the drive logger
                     // read nine of them anyway without anything recording that they exist.
                     out.write("\"mode01\": [${stdPidsIn.joinToString(", ") { "\"$it\"" }}],\n")
+                    // Both: recon_done is the whole-vehicle answer a reader wants, and
+                    // recon_headers is what the next session actually resumes from.
+                    out.write("\"paused\": $paused,\n")
+                    out.write("\"recon_done\": $reconComplete,\n")
+                    out.write("\"recon_headers\": [${reconDoneHdrs.joinToString(", ") { "\"$it\"" }}],\n")
                     out.write("\"aborted\": ${if (stopFlag) "true" else "false"},\n")
                     // Schema below matches obd_scan's discover.json so that
                     // `sweep --blocks-from` can read this file unmodified.
@@ -962,7 +1338,12 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     out.write(found.values.joinToString(",\n") { b ->
                         val recon = b.reconHits.joinToString(", ") { "\"$it\"" }
                         val full = b.fullHits.joinToString(", ") { "[\"${it.first}\", \"${it.second}\"]" }
+                        // swept says all 256 offsets were asked; empty_runs counts the
+                        // separate runs that asked them and found nothing. Together they are
+                        // what lets the next run pick up honestly instead of starting over.
                         "  {\"name\": \"${b.name}\", \"header\": \"${b.header}\", " +
+                            "\"swept\": ${b.swept}, \"empty_runs\": ${b.emptyRuns}, " +
+                            "\"state\": \"${b.state}\", \"swept_at\": \"${b.sweptAt}\", " +
                             "\"recon_hits\": [$recon], \"full_hits\": [$full]}"
                     })
                     out.write("\n]\n}\n")

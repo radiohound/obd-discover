@@ -34,8 +34,8 @@ A single scan from this app supplies all of it at once, from the car itself.
 }
 ```
 
-`blocks` are 256-identifier ranges, not individual DIDs. A Silverado answering 1,929 DIDs
-is 40 blocks, and blocks are what the scanner actually consumes to reorder a run.
+`blocks` are 256-identifier ranges, not individual DIDs. A Silverado answering 1,936 DIDs
+is 44 blocks, and blocks are what the scanner actually consumes to reorder a run.
 
 ## What else a record can hold
 

@@ -259,3 +259,283 @@ class ReportAlwaysHasLogTest {
             body.contains("no adapter activity recorded"))
     }
 }
+
+/**
+ * Which headers a make must not be probed on (#9).
+ *
+ * The hint table itself is an Android asset and reads back empty off-device, so what is
+ * asserted here is the rule, not the table. The table facts behind it -- that no VAG make
+ * hints 7E4, and that Audi, VW and Porsche each carry seven powertrain-flagged 7E5 hints --
+ * are recorded in VehicleId.excludedHeaders where the reasoning lives.
+ */
+class HeaderExclusionTest {
+
+    /**
+     * The header that actually reaches a VAG car in the forbidden range is 7E2, and it
+     * arrives from the make-INDEPENDENT default -- not from any hint. Excluding only the
+     * header the note names, 7E4, would have protected nothing: no VAG make hints it, so it
+     * was never sent to one in the first place.
+     */
+    @Test fun theExcludedHeaderIsOneOfOurOwnDefaults() {
+        assertTrue("7E2" in Discover.HEADERS_11BIT)
+        assertTrue("7E2" in VehicleId.excludedHeaders("Audi"))
+    }
+
+    /** The five headers that document nothing on any VAG marque, including the hazard. */
+    @Test fun theEmptyHeadersInTheRangeAreExcluded() {
+        val e = VehicleId.excludedHeaders("Audi")
+        for (h in listOf("7E2", "7E3", "7E4", "7E6", "7E7")) assertTrue(h, h in e)
+        assertTrue("7E0 is the engine and must stay", "7E0" !in e)
+        assertTrue("7E1 is the TCM and must stay", "7E1" !in e)
+        assertTrue("the broadcast must stay", "7DF" !in e)
+    }
+
+    /**
+     * 7E5 is kept against the letter of the source note. OBDb documents 575 signals there
+     * on four VAG marques and every one is high-voltage battery, so excluding it would cost
+     * an e-tron its entire battery dataset to protect against a module it is not.
+     */
+    @Test fun theBatteryHeaderIsNotExcluded() {
+        assertTrue("7E5" !in VehicleId.excludedHeaders("Audi"))
+        assertTrue("7E5" !in VehicleId.excludedHeaders("Porsche"))
+    }
+
+    /** The finding is Audi's; the group shares the architecture. */
+    @Test fun theExclusionCoversTheGroupNotOneMarque() {
+        for (mk in listOf("Volkswagen", "Porsche", "Skoda", "SEAT", "Bentley", "Lamborghini")) {
+            assertTrue(mk, "7E4" in VehicleId.excludedHeaders(mk))
+        }
+    }
+
+    /** A sibling make from the WMI table triggers it too, since that is how VAG plants read. */
+    @Test fun aSiblingMakeTriggersTheExclusion() {
+        assertTrue("7E2" in VehicleId.excludedHeaders("Unknown", also = listOf("Audi")))
+    }
+
+    /** Everyone else keeps the range. GM answered 69 DIDs on 7E4 with nothing adverse. */
+    @Test fun nonVagMakesAreUnaffected() {
+        for (mk in listOf("Chevrolet", "GMC", "Ford", "Hyundai", "BMW", "Subaru", "Toyota")) {
+            assertTrue(mk, VehicleId.excludedHeaders(mk).isEmpty())
+        }
+    }
+
+    /** An unknown make excludes nothing: a guess must never silently narrow a scan. */
+    @Test fun anUnknownMakeExcludesNothing() {
+        assertTrue(VehicleId.excludedHeaders("").isEmpty())
+        assertTrue(VehicleId.excludedHeaders("Rivian").isEmpty())
+    }
+}
+
+/**
+ * The measured identifier lists that now ship (#D11).
+ *
+ * These are the strongest data this project holds -- what a real car of that make and model
+ * actually answered -- and they are what lets a scan confirm in 1.7 minutes what a blind
+ * sweep takes 24 to rediscover. VehicleId reads them from an Android asset, which is empty
+ * off-device, so what is asserted here is the shipped file itself.
+ */
+class ShippedIdentifierListTest {
+
+    private val root: java.io.File =
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile }
+    private val asset = org.json.JSONObject(
+        java.io.File(root, "app/src/main/assets/vin_patterns.json").readText())
+    private val locations = asset.getJSONObject("locations")
+
+    private fun packedLists(): List<Pair<String, String>> {
+        val out = ArrayList<Pair<String, String>>()
+        for (k in locations.keys()) {
+            val ids = locations.getJSONObject(k).optJSONObject("ids") ?: continue
+            for (h in ids.keys()) out.add(h to ids.getString(h))
+        }
+        return out
+    }
+
+    /** They are actually there, and there are enough of them to matter. */
+    @Test fun theAssetCarriesTheMeasuredIdentifiers() {
+        val n = packedLists().sumOf { it.second.length / 4 }
+        assertTrue("expected thousands of measured identifiers, got $n", n > 3000)
+    }
+
+    /**
+     * PAYLOADS MUST NOT HIDE HERE. What a vehicle returned is never committed and never
+     * shipped; only which identifiers it answered. Every entry has to decode to exactly one
+     * six-character Mode-22 request, which a payload of any length cannot.
+     */
+    @Test fun nothingButModeTwentyTwoIdentifiersCanBeInThere() {
+        for ((hdr, packed) in packedLists()) {
+            assertEquals("$hdr is not a whole number of identifiers", 0, packed.length % 4)
+            assertTrue("$hdr is not hex: $packed", packed.all { it in "0123456789ABCDEF" })
+            var i = 0
+            while (i + 4 <= packed.length) {
+                val req = "22" + packed.substring(i, i + 4)
+                assertEquals("bad request $req", 6, req.length)
+                i += 4
+            }
+        }
+    }
+
+    /** Every header a list is filed under must be a header the app can actually select. */
+    @Test fun theHeadersAreAddressable() {
+        for ((hdr, _) in packedLists()) {
+            assertTrue("$hdr is neither 11-bit nor 29-bit", hdr.length == 3 || hdr.length == 6)
+            assertTrue("$hdr is not hex", hdr.all { it in "0123456789ABCDEF" })
+        }
+    }
+
+    /** A Mode-22 silent vehicle contributes no identifiers, and must not invent any. */
+    @Test fun aSilentVehicleShipsNone() {
+        val hl = locations.optJSONObject("Toyota|Highlander")
+        assertTrue("the Highlander answers no Mode 22 and must ship no identifier list",
+            hl == null || hl.optJSONObject("ids") == null)
+    }
+
+    /**
+     * A canary, not a limit. Around 200 vehicles this reaches ~516 KB and fetching a matched
+     * record at run time becomes the better trade. This fails long before that, so the
+     * decision gets made deliberately rather than discovered in an APK size report.
+     */
+    @Test fun theAssetIsStillSmall() {
+        val bytes = java.io.File(root, "app/src/main/assets/vin_patterns.json").length()
+        assertTrue("vin_patterns.json is $bytes bytes; revisit shipping vs fetching",
+            bytes < 200_000)
+    }
+}
+
+/** The two lookups that were shipped and never reached. */
+class KnownRequestReachTest {
+
+    private val root: java.io.File =
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile }
+    private fun asset(n: String) =
+        java.io.File(root, "app/src/main/assets/$n").readText()
+    private fun source(n: String) =
+        java.io.File(root, "app/src/main/java/com/redundo/obddiscover/$n").readText()
+
+    /**
+     * OBDb files it as "IONIQ 5"; a person wrote "Ioniq 5" in the record. An exact match
+     * returns nothing, which is why the model tier reached that car with zero requests
+     * while carrying thirty-four aimed at its battery, charger, motor and odometer.
+     */
+    @Test fun theModelKeysDisagreeOnCaseAndMustStillMatch() {
+        val models = org.json.JSONObject(asset("obdb_models.json"))
+        val ours = org.json.JSONObject(asset("vin_patterns.json")).getJSONObject("locations")
+        val contributed = ours.keys().asSequence().toList()
+        val exact = contributed.filter { models.has(it) }
+        val insensitive = contributed.filter { c ->
+            models.keys().asSequence().any { it.equals(c, ignoreCase = true) }
+        }
+        assertTrue("case-insensitive must reach at least as many models as exact",
+            insensitive.size >= exact.size)
+        assertTrue("the Ioniq 5 is the case this fix exists for",
+            insensitive.any { it.equals("Hyundai|Ioniq 5", ignoreCase = true) })
+        assertTrue("and an exact match must still fail on it, or the fix is untested",
+            !models.has("Hyundai|Ioniq 5"))
+    }
+
+    /** All three tiers have to be offered, or the most specific data goes unused again. */
+    @Test fun allThreeKnownRequestTiersAreConsulted() {
+        val c = source("Capture.kt")
+        for (fn in listOf("contributedRequests", "supportedForModel", "supportedFor")) {
+            assertTrue("Capture must consult $fn", c.contains("VehicleId.$fn("))
+        }
+    }
+
+    /**
+     * Blocks that phase 0 proved are swept BEFORE recon searches for more. Order only --
+     * recon still runs in full and every block is still swept. The point is which twelve
+     * minutes come first when somebody stops early.
+     */
+    @Test fun provedBlocksAreSweptBeforeRecon() {
+        val d = source("Discover.kt")
+        val seeded = d.indexOf("sweep what phase 0 PROVED")
+        val recon = d.indexOf("phase = \"recon\"")
+        assertTrue("the phase-0 sweep must exist", seeded > 0)
+        assertTrue("it must come before recon, not after", seeded < recon)
+        assertTrue("recon must still sweep every block at every offset",
+            d.contains("all seven offsets of every block"))
+    }
+}
+
+/**
+ * Model keys are matched without regard to case, everywhere.
+ *
+ * Found on the first real BMW run: supportedForModel was made case-insensitive for the
+ * Ioniq and its three siblings were left exact, so the OBDb model tier matched and our own
+ * measured list did not. Phase 0 offered 30 requests instead of 602 and the confirm pass
+ * silently did nothing.
+ */
+class ModelLookupCaseTest {
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/VehicleId.kt").readText()
+
+    @Test fun noModelKeyIsComparedExactly() {
+        assertTrue("no exact model comparison may remain",
+            !src.contains("k.substringAfter('|') != model"))
+        assertTrue("nor an exact make comparison",
+            !src.contains("k.substringBefore('|') != make"))
+    }
+
+    /** All three model-keyed lookups, not just the one that was reported. */
+    @Test fun everyModelKeyedLookupIgnoresCase() {
+        assertEquals("three lookups compare a model", 3,
+            src.split("equals(model, ignoreCase = true)").size - 1)
+        assertEquals("two compare a make", 2,
+            src.split("equals(make, ignoreCase = true)").size - 1)
+    }
+
+    /** The one that was already right stays right. */
+    @Test fun theModelTierStillIgnoresCase() {
+        assertTrue(src.contains("it.lowercase() == want"))
+    }
+}
+
+/**
+ * A car goes by more than one name, and the sources do not agree.
+ *
+ * From the adapter log of a real BMW run:
+ *     model from contributed records: 5 Series
+ *     vPIC: WBAFR7C53D -> 2013 5-Series 535i
+ *     known requests: ours=0 model=0 make=30 for "BMW" / "535i"
+ *
+ * The offline record says "5 Series", which is how our measured lists AND OBDb's model sets
+ * are both keyed. vPIC overwrote it with the trim. Two drives were spent on a confirm pass
+ * that matched nothing.
+ */
+class ModelNameCandidatesTest {
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+
+    /** The record's name has to survive the vPIC lookup that overwrites modelClean. */
+    @Test fun theRecordsNameIsKeptSeparately() {
+        assertTrue("kept apart from modelClean", src.contains("var modelFromRecords = \"\""))
+        assertTrue("and set where the record is read", src.contains("modelFromRecords = model"))
+    }
+
+    /** All three names are tried: what a contributor typed, the trim, and the series. */
+    @Test fun everyNameIsTried() {
+        val i = src.indexOf("val modelKeys = listOf(")
+        assertTrue("candidates must be built", i > 0)
+        val body = src.substring(i, i + 200)
+        for (n in listOf("modelFromRecords", "modelClean", "modelSeries")) {
+            assertTrue("$n must be a candidate", body.contains(n))
+        }
+    }
+
+    /** Both model-keyed tiers use them, not just one. */
+    @Test fun bothModelTiersUseTheCandidates() {
+        assertTrue(src.contains("modelKeys.flatMap { VehicleId.contributedRequests(mk, it) }"))
+        assertTrue(src.contains("modelKeys.flatMap { VehicleId.supportedForModel(mk, it) }"))
+    }
+
+    /** vPIC stays the display name: it is the more specific one. */
+    @Test fun theDisplayNameIsUnchanged() {
+        assertTrue("vPIC still sets modelClean", src.contains("modelClean = it.model"))
+    }
+}

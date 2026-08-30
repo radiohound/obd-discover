@@ -12,6 +12,23 @@ The shipped asset is the IDENTIFYING SUBSET, not the full map: pattern, model, h
 256-DID blocks. Measured over 12 real captures that is 185 bytes per vehicle against 14 KB
 for the full record -- 80x smaller -- so 2,000 vehicles cost 361 KB in the APK while the
 full maps stay in the repo for humans to read.
+
+ONE EXCEPTION, ADDED DELIBERATELY: the identifier lists in *.map.json now ship too, in a
+compact form. A blind sweep asks 256 identifiers per block to find about 25, and it runs
+that way even on a car this project has already mapped. Asking the identifiers we measured
+last time, by name, produces a working drive-log plan in 1.7 minutes on a BMW where the
+blind sweep plus recon takes 24 -- fourteen-fold, measured at the rates real runs achieve.
+
+The lists carry NO payloads; what a vehicle returned is never committed, and that rule is
+unchanged. Grouped by header with the 22 prefix implied, all six current records are 15.5 KB
+against 544 KB of DTC text already in the APK. Around 200 vehicles this reaches ~516 KB and
+fetching a matched record at run time becomes the better answer -- but that needs a network,
+and a garage often has none.
+
+THIS SETS THE ORDER OF THE WORK AND NEVER ITS BOUNDS. Nothing here lets the sweep skip
+anything: a record says what to ask first, never what to leave out. Absence from a record is
+weak evidence, and this project has already been caught by it, on a BMW F10 that answered on
+three blocks the community list did not contain.
 """
 import json, sys, os, re, collections
 
@@ -113,21 +130,66 @@ def main(out_path):
                              (("n", sg.get("name")), ("u", sg.get("unit")),
                               ("h", sg.get("header")), ("c", sg.get("confidence"))) if v}
 
+    # A record whose blocks were measured in different states is a legitimate thing to
+    # contribute -- a map assembled over several drives is the point of resumable mapping --
+    # but it is not the same artefact as one taken in a single sitting, and the difference
+    # has to be visible to whoever reads it. Reported, never refused.
+    for p in sorted(files):
+        try:
+            r = json.load(open(p))
+        except Exception:
+            continue
+        states = {b.get("state") for b in (r.get("detail") or [])
+                  if isinstance(b, dict) and b.get("state")}
+        if len(states) > 1:
+            print(f"vehicles: {os.path.relpath(p, ROOT)}: assembled across "
+                  f"{len(states)} vehicle states ({', '.join(sorted(states))}); "
+                  f"identifiers in it are not all answers to the same question")
+
     if errors:
         print(f"vehicles: {errors} problem(s); refusing to write {out_path}", file=sys.stderr)
         return 1
+    # The measured identifier lists, from the *.map.json beside each record.
+    for p in sorted(f for f in
+                    (os.path.join(d, f) for d, _, fs in os.walk(SRC) for f in fs)
+                    if f.endswith(".map.json")):
+        try:
+            m = json.load(open(p))
+        except Exception as e:
+            errors += fail(p, f"unreadable: {e}"); continue
+        key = f"{m.get('make','')}|{m.get('model','')}"
+        if key not in by_model:
+            errors += fail(p, f"no record for {key}; a map must sit beside its record")
+            continue
+        packed = {}
+        for hdr, ids in (m.get("identifiers") or {}).items():
+            bad = [i for i in ids if len(i) != 6 or not i.upper().startswith("22")]
+            if bad:
+                errors += fail(p, f"{hdr}: not 6-char Mode-22 identifiers: {bad[:3]}")
+                break
+            # Suffixes only, concatenated. The 22 is implied and the width is fixed, so
+            # no separators are needed and the reader splits on four.
+            packed[hdr.upper()] = "".join(sorted(i.upper()[2:] for i in ids))
+        else:
+            if packed:
+                by_model[key]["ids"] = packed
+
     out = {"patterns": {k: v for k, v in sorted(by_pattern.items())},
            "locations": {k: {kk: vv for kk, vv in
                              (("hdr", sorted(v["hdr"])), ("blk", sorted(v["blk"])),
                               ("pid", sorted(v["pid"])), ("m21", sorted(v["m21"])),
-                              ("m22", v["m22"]), ("sig", v["sig"])) if vv}
+                              ("m22", v["m22"]), ("sig", v["sig"]),
+                              ("ids", v.get("ids"))) if vv}
                          for k, v in sorted(by_model.items())}}
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(out, f, separators=(",", ":"), sort_keys=True)
     nsig = sum(len(v.get("sig", {})) for v in out["locations"].values())
+    nids = sum(len(h) // 4 for v in out["locations"].values()
+               for h in (v.get("ids") or {}).values())
     print(f"vehicles: {len(files)} record(s) -> {len(out['patterns'])} VIN patterns, "
           f"{len(out['locations'])} model location sets, {nsig} named signal(s), "
+          f"{nids} measured identifier(s), "
           f"{os.path.getsize(out_path)} bytes")
     return 0
 

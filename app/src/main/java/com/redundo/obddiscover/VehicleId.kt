@@ -108,7 +108,16 @@ object VehicleId {
 
     /** Known requests for one model, same shape as supportedFor. */
     fun supportedForModel(make: String, model: String): List<Pair<String, String>> {
-        val arr = models?.optJSONObject("$make|$model")?.optJSONArray("k") ?: return emptyList()
+        // CASE-INSENSITIVE, because the two sides spell it differently and always will.
+        // OBDb files the Ioniq 5 as "Hyundai|IONIQ 5"; our own record, written by a person,
+        // says "Ioniq 5". An exact match returned nothing for the one car that most needed
+        // the model-level list -- 34 requests aimed at the battery, charger, motor and
+        // odometer, none of which the make-level list reaches as precisely.
+        val models0 = models ?: return emptyList()
+        val want = "$make|$model".lowercase()
+        val key = models0.keys().asSequence().firstOrNull { it.lowercase() == want }
+            ?: return emptyList()
+        val arr = models0.optJSONObject(key)?.optJSONArray("k") ?: return emptyList()
         val out = ArrayList<Pair<String, String>>()
         for (i in 0 until arr.length()) {
             val row = arr.optString(i); val c = row.indexOf(':')
@@ -284,8 +293,9 @@ object VehicleId {
         val loc = contributed?.optJSONObject("locations") ?: return emptyList()
         val out = ArrayList<Signal>()
         for (k in loc.keys()) {
-            if (k.substringBefore('|') != make) continue
-            if (model.isNotEmpty() && k.contains('|') && k.substringAfter('|') != model) continue
+            if (!k.substringBefore('|').equals(make, ignoreCase = true)) continue
+            if (model.isNotEmpty() && k.contains('|') &&
+                !k.substringAfter('|').equals(model, ignoreCase = true)) continue
             val sig = loc.optJSONObject(k)?.optJSONObject("sig") ?: continue
             for (did in sig.keys()) {
                 val e = sig.optJSONObject(did) ?: continue
@@ -294,6 +304,55 @@ object VehicleId {
             }
         }
         return out.sortedBy { it.did }
+    }
+
+    /**
+     * Every Mode-22 identifier a real car of this make and model actually answered.
+     *
+     * ASK WHAT WE KNOW BEFORE SWEEPING FOR IT. A blind sweep asks 256 identifiers per block
+     * to find roughly 25, and runs that way even on a car this project has already mapped.
+     * Confirming the measured list instead is 572 requests on a BMW F10 against 5,888 for
+     * the sweep and 3,584 for the recon that precedes it -- 1.7 minutes against 24, at the
+     * rate real runs achieve. The operator has a drive-log plan before the sweep starts.
+     *
+     * ORDER, NEVER BOUNDS. Nothing here entitles the sweep to skip anything. A record says
+     * what to ask first; it never says what to leave out, because absence from a record is
+     * weak evidence and this project has already been caught by it -- a BMW F10 answered on
+     * three blocks the community list did not contain. The sweep still runs in full.
+     *
+     * Shipped packed: suffixes only, concatenated, grouped by header, the 22 implied. All
+     * six current records are 15.5 KB. See tools/merge_vehicles.py.
+     */
+    fun contributedRequests(make: String, model: String = ""): List<Pair<String, String>> {
+        // MATCHED WITHOUT REGARD TO CASE, like every other model lookup here.
+        //
+        // supportedForModel was made case-insensitive this morning because OBDb writes
+        // "IONIQ 5" where a person writes "Ioniq 5". These three were left exact, and the
+        // first BMW run on a real car found the cost: the OBDb model tier matched and ours
+        // did not, so phase 0 offered 30 requests instead of 602 and sent 11. The confirm
+        // pass -- the whole of phase 1 -- silently did nothing, and the session spent its
+        // ten minutes on recon with two blocks swept at the end of it.
+        //
+        // The model name reaching these functions comes from vPIC, from a contributed
+        // record, or from an operator typing it. Expecting three sources to agree on case
+        // is a bet this project has now lost twice.
+        val loc = contributed?.optJSONObject("locations") ?: return emptyList()
+        val out = LinkedHashSet<Pair<String, String>>()
+        for (k in loc.keys()) {
+            if (!k.substringBefore('|').equals(make, ignoreCase = true)) continue
+            if (model.isNotEmpty() && k.contains('|') &&
+                !k.substringAfter('|').equals(model, ignoreCase = true)) continue
+            val ids = loc.optJSONObject(k)?.optJSONObject("ids") ?: continue
+            for (hdr in ids.keys()) {
+                val packed = ids.optString(hdr)
+                var i = 0
+                while (i + 4 <= packed.length) {
+                    out.add(hdr.uppercase() to "22" + packed.substring(i, i + 4))
+                    i += 4
+                }
+            }
+        }
+        return out.toList()
     }
 
     /**
@@ -310,7 +369,8 @@ object VehicleId {
             val km = k.substringBefore('|')
             if (km != make) continue
             // An exact model wins; with no model, every record for the make contributes.
-            if (model.isNotEmpty() && k.contains('|') && k.substringAfter('|') != model) continue
+            if (model.isNotEmpty() && k.contains('|') &&
+                !k.substringAfter('|').equals(model, ignoreCase = true)) continue
             val e = loc.optJSONObject(k) ?: continue
             val hdrs = e.optJSONArray("hdr") ?: continue
             val blks = e.optJSONArray("blk") ?: continue
@@ -388,6 +448,64 @@ object VehicleId {
      * They are still surfaced by unaddressable(), so the screen can say what is known but
      * out of reach rather than pretending it does not exist.
      */
+    /**
+     * The Volkswagen Auto Group marques -- VW, Audi, Porsche, Skoda, SEAT, Cupra, Bentley,
+     * Lamborghini, Bugatti -- which share platforms and electrical architecture, and so
+     * plausibly share the module layout the exclusion below is about.
+     *
+     * Only Audi is attested. The rest are extension by shared architecture, which is an
+     * inference -- recorded as one, and the cheap direction to be wrong in.
+     */
+    private val VAG = setOf(
+        "AUDI", "VOLKSWAGEN", "PORSCHE", "SEAT", "SKODA", "BENTLEY", "LAMBORGHINI",
+        "BUGATTI", "CUPRA",
+    )
+
+    /**
+     * Headers not to probe on this make, whatever the defaults and the hint table say.
+     *
+     * From obd-gauge-cluster's Audi preset, which excludes the range in-source: Audi
+     * powertrain is engine 7E0 and TCM 7E1, and "NEVER 7E2-7E7 -- 7E4 is a driver-assist
+     * module and reading it trips pre-sense warnings."
+     *
+     * EVERYTHING THIS APP SENDS IS READ-ONLY, AND THAT IS NOT THE SAME CLAIM as no side
+     * effects. The finding is about a warning raised by a READ, on a module whose job is to
+     * react to its inputs. A dash light on a stranger's car is not a cost this project gets
+     * to weigh against a few more identifiers.
+     *
+     * IT IS NOT 7E4 THAT REACHES A VAG CAR. 7E4 is hinted for fourteen makes -- all GM,
+     * Ford, Hyundai/Kia, JLR, Mazda, MG, Tata -- and no VAG make hints it, so it was never
+     * sent to one. What reaches a VAG car in that range is 7E2, from HEADERS_11BIT, which is
+     * make-independent. Excluding only the header the note names would protect nothing.
+     *
+     * 7E5 IS DELIBERATELY KEPT, against the letter of the note. Checked against OBDb's own
+     * signalsets, which is where our hints come from: Audi, Volkswagen, Porsche and Skoda
+     * each document 575 signals at 7E5, and every one is high-voltage battery -- 537 HVBAT_*
+     * and 37 BMS_* covering cell voltages, module temperatures, SOC, SOH and charge limits.
+     * 7E2, 7E3, 7E4, 7E6 and 7E7 document NOTHING on any of them.
+     *
+     * So the range splits cleanly. The five empty headers cost nothing to exclude and one of
+     * them is the attested hazard. 7E5 is a battery module with 575 community-documented
+     * fields, not the driver-assist module the warning is about, and blanket-excluding it
+     * would blind this app to the entire battery dataset of an e-tron, an ID. or a Taycan --
+     * exactly the data a discovery tool exists to find. A range exclusion written to keep a
+     * gauge cluster off a radar should not cost an EV its battery.
+     *
+     * (The four marques being byte-identical means OBDb propagated one signalset across the
+     * group, so this is one characterisation applied group-wide, not four confirmations.)
+     *
+     * CONFIDENCE: another project's field note for the exclusion, community signalsets for
+     * the carve-out -- neither is our measurement, and nobody here has a VAG vehicle. Applied
+     * anyway because the errors are not symmetric: being wrong about the five empty headers
+     * costs nothing at all, and being right and not acting costs somebody a warning light.
+     */
+    fun excludedHeaders(make: String, also: List<String> = emptyList()): Set<String> {
+        val names = (listOf(make) + also).map { it.trim().uppercase() }
+        if (names.none { it in VAG }) return emptySet()
+        // 7E5 omitted on purpose -- see above. It is the HV battery, not driver assist.
+        return setOf("7E2", "7E3", "7E4", "7E6", "7E7")
+    }
+
     fun headers(make: String, powertrainOnly: Boolean = true, also: List<String> = emptyList()): List<String> =
         hintsFor(make, also)
             .filter {

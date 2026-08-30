@@ -62,7 +62,7 @@ a drive. One button:
 With the online lookup on, it also **names the DIDs OBDb documents for that model** —
 fetching that model's signal definitions from OBDb at run time and decoding them, so
 `22005C` on a Silverado reads *"Engine oil temperature: 52 celsius"* rather than `5C`. Only
-a minority: 55 signals against the 1,929 DIDs a sweep of that truck finds. What leaves the
+a minority: 55 signals against the 1,936 DIDs a sweep of that truck finds. What leaves the
 phone is a repository name — no VIN, nothing about the vehicle. The definitions are fetched
 from OBDb rather than bundled, so nothing is redistributed and the file is 19 KB for one
 model instead of ~10 MB for all of them.
@@ -127,6 +127,12 @@ It also tries to recognise a model from the locations that answered, without any
 path has never produced a match on a real vehicle and should not be relied on: OBDb documents
 models across modules this app deliberately never probes, so the pairs that would tell two
 models apart are usually invisible to it.
+
+A map is built ten minutes at a time rather than in one sitting, because a modern
+vehicle answers with more identifiers than a single session can find or a single drive
+can log — 1,936 on a Silverado HD. See
+[docs/resumable-mapping.md](docs/resumable-mapping.md) for the measurements and the
+reasoning.
 
 Since this release the app also carries its own database, in [`vehicles/`](vehicles/): one
 record per car somebody actually scanned, holding the headers, blocks, PIDs and Mode-21

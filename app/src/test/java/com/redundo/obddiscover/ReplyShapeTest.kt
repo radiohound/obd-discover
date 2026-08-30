@@ -2,6 +2,7 @@ package com.redundo.obddiscover
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -51,6 +52,150 @@ class ReplyShapeTest {
     @Test fun payloadOfTakesOneFrameOnly() {
         val raw = "49040133343837\r49040231303030\r>"
         assertEquals("0133343837", Obd.hex(Obd.payloadOf("0904", raw)!!))
+    }
+
+    // --- Obd.messages: CAN multi-frame ---------------------------------------------
+
+    /**
+     * The reply shape that was dropped in silence on every vehicle this app ever scanned.
+     *
+     * Four EGT probes as u16 -- eight data bytes, four more than a single frame can carry
+     * once the PCI, the 0x62 and the identifier are paid for. Before messages() existed
+     * every line here failed startsWith("620078"), payloadOf returned null, no 0x7F meant
+     * it was not a refusal either, and the identifier went into the file as absent.
+     */
+    @Test fun mode22MultiFrameIsReassembled() {
+        val raw = "00B\r0:620078012C01\r1:45015E0170AAAA\r>"
+        assertEquals("012C0145015E0170", Obd.hex(Obd.payloadOf("220078", raw)!!))
+    }
+
+    /** The declared length is what strips the padding the last frame carries. */
+    @Test fun paddingIsTrimmedToTheDeclaredLength() {
+        val raw = "00B\r0:620078012C01\r1:45015E0170AAAA\r>"
+        assertFalse(Obd.hex(Obd.payloadOf("220078", raw)!!).contains("AA"))
+    }
+
+    /** Four data bytes still fit one frame, and must come back untouched. */
+    @Test fun singleFrameIsUnchanged() {
+        assertEquals("ABCD", Obd.hex(Obd.payloadOf("220010", "620010ABCD\r>")!!))
+    }
+
+    /**
+     * A functional broadcast is answered by every module, and a wide answer from two of
+     * them is two messages. Splicing them would invent a value that neither ECU sent.
+     */
+    @Test fun twoRespondersEachReassembleSeparately() {
+        val raw = "00B\r0:620078012C01\r1:45015E0170AAAA\r" +
+            "00B\r0:620078022C02\r1:45025E0270AAAA\r>"
+        val out = Obd.payloadsOf("220078", raw).map { Obd.hex(it) }
+        assertEquals(listOf("012C0145015E0170", "022C0245025E0270"), out)
+    }
+
+    /** The ISO-TP counter is four bits wide: F is followed by 0, same message. */
+    @Test fun theFrameIndexWrapsPastF() {
+        val sb = StringBuilder("076\r0:620078AABBCC\r")
+        for (i in 1..15) sb.append("%X".format(i)).append(":AABBCCDDEEFF00\r")
+        sb.append("0:AABBCCDDEEFF00\r>")
+        assertEquals(1, Obd.messages(sb.toString()).size)
+    }
+
+    /**
+     * K-line lines are NOT continuations. Every one repeats 4904 plus its own sequence
+     * byte, so two ECUs answering are indistinguishable from one long message -- which is
+     * how the phantom C0300 was born. Only an explicit `N:` index joins anything.
+     */
+    @Test fun kLineFramesAreNotJoined() {
+        val raw = "49040133343837\r49040231303030\r>"
+        assertEquals(2, Obd.payloadsOf("0904", raw).size)
+    }
+
+    /** An adapter's chatter is still one message per line, and still matches nothing. */
+    @Test fun noDataIsNotAFrame() {
+        assertEquals(listOf("NODATA"), Obd.messages("NO DATA\r>"))
+    }
+
+    /**
+     * Wire vectors from cheeseprince/obd-gauge-cluster, tools/obd_scan/tests/test_reply.py.
+     *
+     * Two projects reading the same adapter, so agreeing on these is worth more than any
+     * number of cases either of us invents alone. Note the fragments are NOT all seven
+     * bytes -- a real ELM prints what the frame carried, and a parser that assumes a fixed
+     * width reads every byte after the first short frame at the wrong offset.
+     */
+    @Test fun obdScanWireVectorsAgree() {
+        val raw = "00C\r0:62F4780706E1\r1:0777077700\r2:00\r>"
+        assertEquals("0706E1077707770000", Obd.hex(Obd.payloadOf("22F478", raw)!!))
+    }
+
+    /** Their truncation vector: five declared, eight supplied. */
+    @Test fun declaredLengthWinsOverWhatArrived() {
+        val raw = "005\r0:62F4461A\r1:FFFFFFFF\r>"
+        assertEquals("1AFF", Obd.hex(Obd.payloadOf("22F446", raw)!!))
+    }
+
+    /**
+     * A dropped fragment must not decode as short-but-valid data. Thirteen declared, six
+     * supplied: the honest answer is nothing, because a truncated payload is a plausible
+     * wrong number and an absent one gets asked about again.
+     */
+    @Test fun aDroppedFragmentIsNotShortData() {
+        assertNull(Obd.payloadOf("22F478", "00D\r0:62F4780706E1\r>"))
+    }
+
+    /** A genuine final 0x55 survives, because trimming goes by length, not by pad value. */
+    @Test fun aRealFinalPadByteSurvives() {
+        assertEquals("55", Obd.hex(Obd.payloadOf("22F446", "004\r0:62F44655\r>")!!))
+    }
+
+    /** A duplicate index masking a missing one must not reach the declared length. */
+    @Test fun aDuplicateIndexDoesNotPassAsComplete() {
+        val raw = "00C\r0:62F4780706E1\r1:0777077700\r1:0777077700\r>"
+        assertNull(Obd.payloadOf("22F478", raw))
+    }
+
+    /**
+     * The Ioniq 5's real reply, from its capture of 2026-08-30. Seventeen ASCII bytes, so
+     * it needs two frames -- which is why this fallback existed in the source for days and
+     * returned null every time it was called.
+     */
+    @Test fun theVinReadsFrom22F190() {
+        val raw = "014\r0:62F190375941\r1:4B4D3444425853\r2:59303430333930\r>"
+        assertEquals("7YAKM4DBXSY040390", Discover.vinFrom(raw))
+    }
+
+    /** And the same reply is what a single-frame parser saw: nothing at all. */
+    @Test fun theOldParserSawNoVinThere() {
+        val raw = "014\r0:62F190375941\r1:4B4D3444425853\r2:59303430333930\r>"
+        assertNull(raw.split('\r').map { it.trim() }
+            .firstOrNull { it.startsWith("62F190") })
+    }
+
+    // --- run timing and sizing (#7, #10) -------------------------------------------
+
+    /**
+     * One timestamp format, shared with the drive CSV so a capture and the drive that
+     * followed it sort together with no conversion. UTC, because a capture that moves
+     * between machines must not reorder itself.
+     */
+    @Test fun theCaptureClockMatchesTheDriveClock() {
+        assertEquals("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Obd.ISO_UTC)
+        assertEquals("2026-08-29T00:00:00.000Z", Obd.isoUtc(1787961600000L))
+    }
+
+    /**
+     * The block prior sizes the sweep before recon has counted anything, and 20 was
+     * calibrated on 9-to-17-block vehicles. A GM truck answers with 38 and our own
+     * Silverado with 40, so on those the sweep was sized at half the truth for the whole
+     * of recon. The hint table already knows GM runs large; use it.
+     */
+    @Test fun theBlockPriorTakesTheHintWhenTheHintIsLarger() {
+        assertEquals(32, Discover.blockPrior(32))     // GM: measured 38-40
+        assertEquals(20, Discover.blockPrior(7))      // Subaru: measured 9, floor still applies
+    }
+
+    /** Never below the floor, or a small-hint make would size its sweep at nearly nothing. */
+    @Test fun theBlockPriorNeverGoesBelowTheFloor() {
+        assertEquals(Discover.BLOCK_PRIOR, Discover.blockPrior(0))
     }
 
     // --- Mode09 support bitmap -----------------------------------------------------
@@ -948,7 +1093,7 @@ class ScanRunsOnCachedCaptureTest {
 
     @Test fun theScanPrecedesTheCacheDecision() {
         val scan = cap.indexOf("Mode-01 bitmap scan")
-        val cached = cap.indexOf("val cached = if (forceDiscover)")
+        val cached = cap.indexOf("val cached = if (forceDiscover")
         assertTrue("both must exist", scan > 0 && cached > 0)
         assertTrue("the scan must run before the cache branch is taken", scan < cached)
     }
@@ -1135,5 +1280,600 @@ class CaptureStateTest {
             src("Session.kt").contains("var captureState by mutableStateOf(CAPTURE_STATES.first())"))
         assertTrue("and that first entry must be unspecified",
             src("Session.kt").contains("\"unspecified\","))
+    }
+}
+
+/**
+ * Resuming a map (phase 2 of the resumable-mapping note).
+ *
+ * The rules are small and the consequences are not: get "done" wrong in either direction and
+ * a resumed run either re-does an hour of work or writes a gap down as a fact.
+ */
+class ResumeRulesTest {
+
+    private fun blk(name: String, hits: Int, swept: Boolean, emptyRuns: Int = 0) =
+        DiscoveredBlock(name, name.take(4).toInt(16), "7DF", emptyList(),
+            (1..hits).map { "%04X%02X".format(0x2244, it) to "00" }.toMutableList(),
+            swept = swept, emptyRuns = emptyRuns)
+
+    /** The rule the sweeps use. Kept here so it cannot drift from the one under test. */
+    private fun finished(b: DiscoveredBlock) =
+        b.swept && (b.fullHits.isNotEmpty() || b.emptyRuns >= 2)
+
+    /** Swept with hits is the only unambiguous "done". */
+    @Test fun aSweptBlockWithHitsIsDone() {
+        assertTrue(finished(blk("2244xx", hits = 42, swept = true)))
+    }
+
+    /**
+     * The rule the whole design rests on. Ten of twelve captures contain no empty blocks at
+     * all, so re-queueing costs nothing on a healthy car -- and on the BMW that lost nine
+     * consecutive blocks to a refuelling stop, it is what repairs them.
+     */
+    @Test fun aSweptButEmptyBlockIsNotDone() {
+        assertFalse(finished(blk("2244xx", hits = 0, swept = true)))
+    }
+
+    /**
+     * The escape hatch, or a car that genuinely contradicts its own recon loops forever.
+     * Two SEPARATE runs, because one run finding a block empty is exactly what an outage
+     * looks like.
+     */
+    @Test fun twoSeparateRunsFindingItEmptyIsBelieved() {
+        assertFalse(finished(blk("2244xx", hits = 0, swept = true, emptyRuns = 1)))
+        assertTrue(finished(blk("2244xx", hits = 0, swept = true, emptyRuns = 2)))
+    }
+
+    /** A block the sweep never reached is pending, not empty. */
+    @Test fun anUnsweptBlockIsNeverDone() {
+        assertFalse(finished(blk("2244xx", hits = 0, swept = false)))
+        assertFalse(finished(blk("2244xx", hits = 9, swept = false)))
+    }
+
+    /**
+     * Stopping partway through a block must leave it pending. Otherwise the block being
+     * swept when the operator hits stop gets written down as a fact about the vehicle.
+     */
+    @Test fun theBlockInterruptedMidSweepStaysPending() {
+        val b = blk("2244xx", hits = 7, swept = false)      // stopped at offset 7 of 255
+        assertFalse("a partial sweep is not a swept block", finished(b))
+    }
+
+    /** Older captures have no swept flag; hits mean swept, nothing means ask again. */
+    @Test fun aCaptureFromBeforeThisFieldStillReadsSafely() {
+        assertTrue(finished(blk("2244xx", hits = 3, swept = true)))     // hits -> swept
+        assertFalse(finished(blk("2244xx", hits = 0, swept = false)))   // none -> pending
+    }
+}
+
+/**
+ * The two guards a resumed map needs (phase 3).
+ *
+ * Both exist because a silence got recorded as a fact about a vehicle: nine blocks on a BMW
+ * during a refuelling stop, with zero timeouts and zero retries the whole time.
+ */
+class OutageGuardTest {
+
+    private val root: java.io.File =
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile }
+    private val src = java.io.File(
+        root, "app/src/main/java/com/redundo/obddiscover/Discover.kt").readText()
+
+    /**
+     * Three, chosen from data rather than taste: ten of twelve captures contain no empty
+     * block at all, and the only non-aborted run that produced any produced nine.
+     */
+    @Test fun theWarningTripsAtThreeConsecutiveEmptyBlocks() {
+        assertTrue("the consecutive-empty counter must exist", src.contains("emptyRun"))
+        assertTrue("and must trip at three", src.contains("emptyRun >= 3"))
+    }
+
+    /** It has to clear itself, or the first outage marks the whole rest of the run. */
+    @Test fun aBlockThatAnswersClearsTheWarning() {
+        val reset = src.indexOf("emptyRun = 0")
+        assertTrue("the counter must reset when a block answers", reset > 0)
+        assertTrue("and the warning with it", src.contains("warning = \"\""))
+    }
+
+    /**
+     * The overlap re-sweeps a block that already has hits, so a disagreement means the
+     * vehicle's state changed rather than that the block was never done.
+     */
+    @Test fun theOverlapChecksABlockThatAlreadyAnswered() {
+        val i = src.indexOf("val overlap = found.values.lastOrNull")
+        assertTrue("the overlap block must be chosen", i > 0)
+        val pick = src.substring(i, i + 200)
+        assertTrue("it must have been swept", pick.contains("it.swept"))
+        assertTrue("and must have hits to compare against", pick.contains("fullHits.isNotEmpty()"))
+        assertTrue("and be on a header that is answering now", pick.contains("liveHeaders"))
+    }
+
+    /**
+     * An identifier that answered once is a fact about the vehicle. A state disagreement is
+     * a reason to warn, never a reason to drop data.
+     */
+    @Test fun theOverlapKeepsTheUnionAndOnlyWarns() {
+        val i = src.indexOf("val lost = before - now")
+        assertTrue("the comparison must exist", i > 0)
+        val body = src.substring(maxOf(0, i - 900), minOf(src.length, i + 1200))
+        assertTrue("new identifiers are kept", body.contains("overlap.fullHits.add"))
+        assertTrue("a disagreement warns", body.contains("answered differently"))
+        assertTrue("nothing is removed anywhere", !src.contains("fullHits.remove"))
+    }
+}
+
+/**
+ * Per-block state provenance (phase 4).
+ *
+ * A map assembled over several sessions is a blend. Without a stamp on each block nobody can
+ * unpick which identifiers were answers to which question -- and "does this only answer when
+ * moving" is the first thing anyone asks of an identifier that comes and goes.
+ */
+class BlockStateStampTest {
+
+    private val root: java.io.File =
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile }
+    private fun src(n: String) = java.io.File(
+        root, "app/src/main/java/com/redundo/obddiscover/$n").readText()
+
+    /** The stamp goes on when the block finishes, beside the swept flag it qualifies. */
+    @Test fun aBlockIsStampedWhenItIsSwept() {
+        val d = src("Discover.kt")
+        val i = d.indexOf("b.swept = true")
+        assertTrue("blocks must be marked swept", i > 0)
+        val after = d.substring(i, i + 200)
+        assertTrue("with the vehicle state", after.contains("Session.captureState"))
+        assertTrue("and a timestamp", after.contains("isoUtc"))
+    }
+
+    /** In the same UTC format as everything else, or nothing sorts together. */
+    @Test fun theStampUsesTheOneClockFormat() {
+        assertEquals("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Obd.ISO_UTC)
+        assertTrue(src("Discover.kt").contains("b.sweptAt = Obd.isoUtc"))
+    }
+
+    /** It has to survive into the capture file and back out again, or resuming loses it. */
+    @Test fun theStampRoundTripsThroughTheCaptureFile() {
+        assertTrue("written", src("Discover.kt").contains("\\\"swept_at\\\""))
+        assertTrue("and read back", src("Capture.kt").contains("b.optString(\"swept_at\""))
+    }
+
+    /**
+     * The overlap warning names both states. "Something changed" is not actionable; "last
+     * swept at warm idle, now key on engine off" is something the operator recognises.
+     */
+    @Test fun theOverlapWarningNamesBothStates() {
+        val d = src("Discover.kt")
+        val i = d.indexOf("answered differently than last session")
+        assertTrue("the disagreement warning must exist", i > 0)
+        val body = d.substring(i - 300, i + 300)
+        assertTrue("the old state", body.contains("overlap.state"))
+        assertTrue("and the current one", body.contains("Session.captureState"))
+    }
+
+    /** "unspecified" is the default nobody chose, and carries no information. */
+    @Test fun theDefaultStateIsNotWrittenIntoARecord() {
+        assertTrue(src("Export.kt").contains("it != \"unspecified\""))
+    }
+}
+
+/**
+ * Resumable recon, per header (phase 5).
+ *
+ * Recon is the expensive half and was the only half that could not be picked up: 1,792
+ * probes for one header, ten minutes on an Ioniq 5, and eight live headers is 82 minutes
+ * before a single block gets swept.
+ */
+class ResumableReconTest {
+
+    private val root: java.io.File =
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile }
+    private fun src(n: String) = java.io.File(
+        root, "app/src/main/java/com/redundo/obddiscover/$n").readText()
+
+    /** Headers already walked are not walked again. */
+    @Test fun reconSkipsHeadersAnEarlierRunFinished() {
+        val d = src("Discover.kt")
+        assertTrue("the done set must come from the resume", d.contains("resumeReconHeaders"))
+        assertTrue("and the todo list must exclude it",
+            d.contains("liveHeaders.filter { it !in reconDoneHdrs }"))
+        assertTrue("and recon must iterate the todo list", d.contains("for (h in reconTodo)"))
+    }
+
+    /**
+     * A header is done only when walked to the last prefix. Half-searched is
+     * indistinguishable from empty in the part never reached, so it stays on the list.
+     */
+    @Test fun aHeaderInterruptedPartwayIsNotDone() {
+        val d = src("Discover.kt")
+        val i = d.indexOf("reconDoneHdrs.add(h)")
+        assertTrue("headers must be marked done", i > 0)
+        val guard = d.substring(maxOf(0, i - 80), i)
+        assertTrue("only when the operator did not stop it", guard.contains("!stopFlag"))
+        assertTrue("and not when the session budget ended it", guard.contains("!paused"))
+    }
+
+    /** The estimate has to size only the work actually left, or the bar lies on a resume. */
+    @Test fun theEstimateCountsOnlyTheHeadersLeft() {
+        assertTrue(src("Discover.kt").contains("val reconTotal = reconTodo.size * 256"))
+    }
+
+    /** Whole-vehicle "done" is derived from the headers, not tracked separately. */
+    @Test fun reconIsCompleteOnlyWhenEveryLiveHeaderIs() {
+        assertTrue(src("Discover.kt").contains(
+            "liveHeaders.all { it in reconDoneHdrs }"))
+    }
+
+    /**
+     * A capture from before this field says yes or no for the whole vehicle. Yes meant every
+     * header it targeted, so that is how it is read; no means none, and recon runs again.
+     */
+    @Test fun anOlderCaptureStillResumesCorrectly() {
+        val c = src("Capture.kt")
+        val i = c.indexOf("recon_headers")
+        assertTrue("the per-header list is read", i > 0)
+        val body = c.substring(i, i + 500)
+        assertTrue("falling back to the old flag", body.contains("recon_done"))
+        assertTrue("meaning the headers it targeted", body.contains("headers_targeted"))
+    }
+}
+
+/**
+ * The two review findings: a session that ends on a clock, and progress that survives one.
+ */
+class SessionBudgetTest {
+
+    private val root: java.io.File =
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile }
+    private fun src(n: String) = java.io.File(
+        root, "app/src/main/java/com/redundo/obddiscover/$n").readText()
+
+    /** Paused is a clean end, not a failure. Confusing them refuses a drive that should run. */
+    @Test fun aPausedRunIsNotAnAbortedOne() {
+        val c = src("Capture.kt")
+        val i = c.indexOf("discover.paused && plan != null")
+        assertTrue("a paused run with a plan must be handled", i > 0)
+        assertTrue("and must reach the drive", c.substring(i, i + 500).contains("driveStep(plan)"))
+        assertTrue("before the aborted branch", i < c.indexOf("} else if (discover.aborted)"))
+    }
+
+    /** The clock is checked between blocks, so nothing is left half-asked. */
+    @Test fun theBudgetEndsOnABlockBoundary() {
+        val d = src("Discover.kt")
+        assertTrue("both sweeps check it", d.split("if (outOfTime()) { paused = true; break }").size - 1 >= 2)
+        assertTrue("and it is measured from the run start", d.contains("System.currentTimeMillis() - runStartMs"))
+    }
+
+    /** A header the budget interrupted has ruled nothing out and must run again. */
+    @Test fun aPausedReconHeaderIsNotMarkedDone() {
+        assertTrue(src("Discover.kt").contains("if (!stopFlag && !paused) reconDoneHdrs.add(h)"))
+    }
+
+    /** Zero still means no limit in the runner, even though nothing sets it today. */
+    @Test fun noBudgetMeansNoLimit() {
+        assertTrue(src("Discover.kt").contains("budgetMs > 0 &&"))
+    }
+
+    /**
+     * Re-map means "discard what is known and begin again", not "sit here for an hour".
+     * Unbudgeted, the only way to end one early was by hand -- which marks the capture
+     * aborted and refuses the drive, the outcome this whole design exists to avoid.
+     */
+    @Test fun everySessionIsABiteIncludingAFreshStart() {
+        val c = src("Capture.kt")
+        assertTrue("the budget is set unconditionally",
+            c.contains("discover.budgetMs = SESSION_MAP_MINUTES * 60_000L"))
+        assertTrue("with no escape for forceDiscover",
+            !c.contains("if (forceDiscover) 0L"))
+    }
+
+    /**
+     * The newest capture is not the richest. Re-map a mapped car, stop it two minutes in,
+     * and the most recent file holds three blocks while an hour sits in the one before.
+     */
+    @Test fun progressIsMergedAcrossCapturesNotTakenFromTheNewest() {
+        val c = src("Capture.kt")
+        val i = c.indexOf("private fun findProgress")
+        val body = c.substring(i, i + 900)
+        assertTrue("oldest first, so newer facts win", body.contains("sortedBy { it.lastModified() }"))
+        assertTrue("every capture is handed to the merge, not just the first",
+            body.contains("mergeProgress(files.mapNotNull"))
+        assertTrue("and the file reading stays out of the merge, so it can be tested",
+            !body.contains("hitMap"))
+        // What the merge actually DOES is asserted in ResumeEndToEndTest, which runs it.
+    }
+}
+
+/**
+ * The resume path, end to end, on captures in the exact shape Discover writes.
+ *
+ * Everything else about resuming is asserted against source text or pure predicates. This
+ * runs the actual merge over actual capture JSON -- the write-read-seed path that had never
+ * once executed in a test, and where a silent data-loss bug reached a commit.
+ */
+class ResumeEndToEndTest {
+
+    /** Written to match Discover's own writer. Drift here should break these tests. */
+    private fun capture(
+        vinKey: String = "a1b2c3d4",
+        blocks: List<String>,
+        reconHeaders: List<String> = emptyList(),
+        reconDone: Boolean = false,
+        targeted: List<String> = emptyList(),
+    ) = """{
+        "build": "test", "state": "warm idle", "vin_key": "$vinKey",
+        "headers_targeted": [${targeted.joinToString(", ") { "\"$it\"" }}],
+        "paused": false, "recon_done": $reconDone,
+        "recon_headers": [${reconHeaders.joinToString(", ") { "\"$it\"" }}],
+        "aborted": false,
+        "detail": [${blocks.joinToString(", ")}]
+    }"""
+
+    private fun block(
+        name: String, header: String = "7DF", swept: Boolean = true,
+        hits: List<Pair<String, String>> = emptyList(), emptyRuns: Int = 0,
+        state: String = "warm idle",
+    ) = """{"name": "$name", "header": "$header", "swept": $swept,
+        "empty_runs": $emptyRuns, "state": "$state", "swept_at": "2026-08-30T12:00:00.000Z",
+        "recon_hits": [], "full_hits": [${
+        hits.joinToString(", ") { "[\"${it.first}\", \"${it.second}\"]" }}]}"""
+
+    private fun merge(vararg caps: String) = mergeProgress(caps.toList(), "a1b2c3d4")
+
+    /** One capture in, the same blocks out. */
+    @Test fun asingleCaptureRoundTrips() {
+        val (blocks, recon) = merge(capture(
+            blocks = listOf(block("2244xx", hits = listOf("224401" to "AB"))),
+            reconHeaders = listOf("7DF")))!!
+        assertEquals(1, blocks.size)
+        assertEquals("2244xx", blocks[0].name)
+        assertTrue(blocks[0].swept)
+        assertEquals(listOf("224401" to "AB"), blocks[0].fullHits)
+        assertEquals(setOf("7DF"), recon)
+    }
+
+    /**
+     * THE FINDING THIS TEST EXISTS FOR. A later, thinner capture -- a re-map stopped two
+     * minutes in -- must not bury an hour of sweeping in the one before it.
+     */
+    @Test fun aThinnerLaterCaptureDoesNotEraseAnEarlierOne() {
+        val rich = capture(blocks = (0x40..0x48).map {
+            block("22%02Xxx".format(it), hits = listOf("22%02X01".format(it) to "AB"))
+        })
+        val thin = capture(blocks = listOf(block("2244xx", hits = listOf("224401" to "AB"))))
+        val (blocks, _) = merge(rich, thin)!!
+        assertEquals("every block from the richer capture survives", 9, blocks.size)
+    }
+
+    /** Hits union: an identifier that answered once is a fact about the vehicle. */
+    @Test fun hitsFromBothSessionsAreKept() {
+        val a = capture(blocks = listOf(block("2244xx", hits = listOf("224401" to "AB"))))
+        val b = capture(blocks = listOf(block("2244xx", hits = listOf("224402" to "CD"))))
+        val ids = merge(a, b)!!.first.single().fullHits.map { it.first }
+        assertEquals(listOf("224401", "224402"), ids)
+    }
+
+    /** A later run that never reached a block must not un-sweep it. */
+    @Test fun sweptIsSticky() {
+        val done = capture(blocks = listOf(block("2244xx", hits = listOf("224401" to "AB"))))
+        val notReached = capture(blocks = listOf(block("2244xx", swept = false)))
+        assertTrue(merge(done, notReached)!!.first.single().swept)
+    }
+
+    /** empty_runs is a running count, so the larger wins and the escape hatch still works. */
+    @Test fun emptyRunsAccumulateAcrossCaptures() {
+        val one = capture(blocks = listOf(block("2244xx", emptyRuns = 1)))
+        val two = capture(blocks = listOf(block("2244xx", emptyRuns = 2)))
+        assertEquals(2, merge(two, one)!!.first.single().emptyRuns)
+    }
+
+    /** Recon headers accumulate, so a session finishing one more does not lose the rest. */
+    @Test fun reconHeadersAccumulate() {
+        val a = capture(blocks = listOf(block("2244xx")), reconHeaders = listOf("7DF"))
+        val b = capture(blocks = listOf(block("2244xx")), reconHeaders = listOf("7E1"))
+        assertEquals(setOf("7DF", "7E1"), merge(a, b)!!.second)
+    }
+
+    /** A capture from before recon_headers said yes for the whole vehicle. */
+    @Test fun anOlderCompletedCaptureCountsEveryHeaderItTargeted() {
+        val old = """{"vin_key": "a1b2c3d4", "recon_done": true,
+            "headers_targeted": ["7DF", "7E1"],
+            "detail": [${block("2244xx", hits = listOf("224401" to "AB"))}]}"""
+        assertEquals(setOf("7DF", "7E1"), merge(old)!!.second)
+    }
+
+    /** Another vehicle's captures must never leak into this one's progress. */
+    @Test fun anotherVehicleIsIgnored() {
+        val other = capture(vinKey = "ffffffff", blocks = listOf(block("2299xx")))
+        val mine = capture(blocks = listOf(block("2244xx")))
+        assertEquals(listOf("2244xx"), merge(other, mine)!!.first.map { it.name })
+    }
+
+    /** Unreadable files are skipped, not fatal: one bad capture cannot cost the map. */
+    @Test fun aCorruptCaptureIsSkipped() {
+        val good = capture(blocks = listOf(block("2244xx", hits = listOf("224401" to "AB"))))
+        assertEquals(1, merge("{ not json at all", good)!!.first.size)
+    }
+
+    /** Nothing for this vehicle means nothing to resume, not an empty map. */
+    @Test fun noMatchingCaptureReturnsNull() {
+        assertNull(merge(capture(vinKey = "ffffffff", blocks = listOf(block("2244xx")))))
+        assertNull(mergeProgress(emptyList(), "a1b2c3d4"))
+        assertNull(mergeProgress(listOf(capture(blocks = listOf(block("2244xx")))), ""))
+    }
+}
+
+/**
+ * A finished map versus one that merely was not stopped.
+ *
+ * The session budget introduced a third outcome. Before it there were two -- ran to the end,
+ * or the operator stopped it -- and "not aborted" meant finished. A paused run ends tidily
+ * and writes aborted:false, so on the old test a ten-minute bite would be mistaken for a
+ * complete map and every later CAPTURE would skip discovery. Mapped once, briefly, forever.
+ */
+class FinishedVersusNotStoppedTest {
+
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+
+    private val body = src.substring(src.indexOf("private fun findCached"),
+        src.indexOf("private fun findCached") + 2200)
+
+    @Test fun aStoppedRunIsNotAFinishedMap() {
+        assertTrue(body.contains("""o.optBoolean("aborted", false)) continue"""))
+    }
+
+    @Test fun aPausedRunIsNotAFinishedMap() {
+        assertTrue(body.contains("""o.optBoolean("paused", false)) continue"""))
+    }
+
+    @Test fun aRunWhoseReconNeverEndedIsNotAFinishedMap() {
+        assertTrue(body.contains("""o.has("recon_done") && !o.optBoolean("recon_done")"""))
+    }
+
+    @Test fun aMapWithBlocksStillQueuedIsNotFinished() {
+        assertTrue(body.contains("unfinished"))
+        assertTrue(body.contains("""b.has("swept") && !b.optBoolean("swept")"""))
+    }
+
+    /** Captures from before these fields must still count, or every mapped car re-maps. */
+    @Test fun anOlderCaptureIsStillJudgedByTheOldTest() {
+        assertTrue("recon_done is only enforced when present", body.contains("""o.has("recon_done")"""))
+        assertTrue("and swept only when present", body.contains("""b.has("swept")"""))
+    }
+}
+
+/**
+ * Which branch a CAPTURE takes, and why it is not findCached's decision alone.
+ *
+ * findCached reads ONE capture and asks whether that run was stopped. A capture written
+ * before blocks carried a swept flag answers no to every guard there is, so it was accepted
+ * as a finished map and discovery skipped -- on every vehicle in this project, because every
+ * one of them has such a file. The first CAPTURE after a paused session drove off having
+ * mapped nothing, with twenty blocks pending in the file beside it.
+ */
+class ResumeBeatsAStaleCacheTest {
+
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+
+    /** Progress is consulted before the cache, not inside the branch the cache skips. */
+    @Test fun progressIsReadBeforeTheCacheDecision() {
+        val prior = src.indexOf("val prior = if (forceDiscover) null else findProgress(vinKey)")
+        val cached = src.indexOf("val cached = if (forceDiscover || unfinished)")
+        assertTrue("progress must be read", prior > 0)
+        assertTrue("and read first", prior < cached)
+    }
+
+    /** Unfinished work anywhere in the merged view means resume, whatever one file claims. */
+    @Test fun unfinishedWorkSuppressesTheCache() {
+        assertTrue(src.contains("val cached = if (forceDiscover || unfinished) null else findCached(vinKey)"))
+    }
+
+    /** Finished uses the same rule the sweeps use: swept, and either answered or twice empty. */
+    @Test fun theFinishedTestMatchesTheOneTheSweepsUse() {
+        val i = src.indexOf("val blocksLeft = prior?.first?.any")
+        assertTrue("the test must exist", i > 0)
+        val body = src.substring(i, i + 220)
+        assertTrue("swept", body.contains("it.swept"))
+        assertTrue("with hits", body.contains("it.fullHits.isNotEmpty()"))
+        assertTrue("or believed empty", body.contains("it.emptyRuns >= 2"))
+    }
+}
+
+/**
+ * What a resumed run reports on screen.
+ *
+ * The count reset to zero before the sweeps so phase 0's hits would not be double-counted --
+ * correct on a fresh run, and badly wrong on a resumed one, where finished blocks are never
+ * re-swept and so were never counted. A BMW carrying 703 identifiers displayed about thirty,
+ * which reads as a map that lost everything.
+ */
+class ResumedRunReportsWhatItHasTest {
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Discover.kt").readText()
+
+    @Test fun carriedIdentifiersAreCounted() {
+        assertTrue("the count must not simply reset", !src.contains("didsFound = 0     //"))
+        val i = src.indexOf("didsFound = found.values")
+        assertTrue("it must be seeded from what is already known", i > 0)
+        val body = src.substring(i, i + 200)
+        assertTrue("only blocks that are actually swept", body.contains("it.swept"))
+        assertTrue("and that hold something", body.contains("it.fullHits.isNotEmpty()"))
+    }
+
+    /**
+     * Only finished blocks are seeded, and those are exactly the ones the sweeps skip -- so
+     * nothing is counted twice.
+     */
+    @Test fun nothingIsCountedTwice() {
+        val seeded = src.indexOf("didsFound = found.values")
+        val skip = src.indexOf("filterNot { finished(it) }")
+        assertTrue("the sweeps must skip finished blocks", skip > seeded)
+    }
+}
+
+/**
+ * A map is not finished merely because its blocks are.
+ *
+ * An Ioniq 5 has eleven blocks all holding hits and not one capture recording that recon
+ * reached the end, because every one of them predates the field. Blocks alone said finished,
+ * so the vehicle that most needs mapping would have skipped it and driven off.
+ */
+class ReconCompletionCountsTest {
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+
+    @Test fun unknownReconCountsAsUnfinished() {
+        assertTrue("recon completion must be tested",
+            src.contains("val reconUnknown = prior != null && prior.second.isEmpty()"))
+        assertTrue("and must feed the decision",
+            src.contains("val unfinished = blocksLeft || reconUnknown"))
+    }
+
+    /** A vehicle with no captures at all is not "unfinished" -- it is simply new. */
+    @Test fun aVehicleWithNoHistoryIsNotUnfinished() {
+        assertTrue("guarded on prior being present", src.contains("prior != null && prior.second.isEmpty()"))
+    }
+}
+
+/**
+ * A refusal is proof the module speaks the service, wherever it arrives.
+ *
+ * speaks_mode22 was credited only from recon, so a header that answered "no such identifier"
+ * during phase 0 and was never reached by recon read, in the file, as a header that says
+ * nothing. A 2025 Ioniq 5's 7E4 did precisely that: 0x31 requestOutOfRange to phase 0,
+ * understanding Mode 22 and declining those DIDs, reported as silent.
+ */
+class RefusalsCountWhereverTheyArriveTest {
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Discover.kt").readText()
+
+    @Test fun phaseZeroRefusalsCountToo() {
+        assertTrue("phase 0 must exist", src.contains("probes++; probesKnown++; kdone++"))
+        // hdr is phase 0's loop variable; recon's is h. Naming them apart is what makes
+        // this assertion able to tell the two sites from each other.
+        assertTrue("the refusal flag must be read in phase 0",
+            src.contains("val (present, payload, nak) = ask(req)"))
+        assertTrue("and credited there", src.contains("if (nak) speaksMode22.add(hdr)"))
+    }
+
+    /** Recon still credits them, so nothing was traded away. */
+    @Test fun reconStillCreditsRefusals() {
+        assertTrue(src.contains("if (nak) speaksMode22.add(h)"))
     }
 }

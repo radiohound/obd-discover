@@ -98,6 +98,89 @@ object Obd {
      * that NAK out of the data -- the exact trap that made oil pressure decode as one byte.
      */
     /**
+     * The lines of a reply, with CAN multi-frame runs folded back into whole messages.
+     *
+     * A CAN frame holds eight bytes and a Mode-22 reply spends four of them on the PCI, the
+     * 0x62 and the two identifier bytes -- so an answer of more than FOUR data bytes cannot
+     * be one frame. ISO-TP splits it, and the ELM327 (auto-formatting is on by default and
+     * this app never sends ATCAF0) hands back a length line and indexed frames:
+     *
+     *   00B
+     *   0:620078012C01
+     *   1:45015E0170AAAA
+     *
+     * Every one of those lines fails a startsWith("620078") test, and a reply carrying no
+     * 0x7F is not a refusal either -- so the identifier was recorded as ABSENT, which in the
+     * output is indistinguishable from one the vehicle does not implement. A missing name is
+     * invisible; a missing IDENTIFIER is worse, because the sweep will not ask again.
+     *
+     * Measured across 5,859 hits from seven vehicles before this existed: 1-byte 3,377,
+     * 2-byte 1,792, 3-byte 97, 4-byte 593, and NOTHING above four. That is not a taper, it
+     * is a wall standing exactly at the single-frame ceiling. Every wide answer those cars
+     * ever gave -- multi-sensor blocks, anything with flags packed beside a value -- was
+     * dropped on the floor in silence. Found by cheeseprince against a GM profile that knew
+     * what the truck was supposed to answer (#6); none of our own cars could have told us.
+     *
+     * K-LINE LINES ARE LEFT ALONE, DELIBERATELY. On ISO 9141 every line repeats the response
+     * prefix and its own sequence byte, so two ECUs answering look exactly like one long
+     * message -- joining them is what produced the phantom C0300. Only an explicit `N:` index
+     * is treated as a continuation, because only it actually says so.
+     */
+    fun messages(raw: String): List<String> {
+        val out = ArrayList<String>()
+        val buf = StringBuilder()
+        var declared = -1
+        var nextIdx = -1
+        fun flush() {
+            if (buf.isNotEmpty()) {
+                var hex = buf.toString()
+                // The length line counts the message's own bytes, which is what trims the
+                // padding the last frame carries. Without it a 20-byte answer decodes 21
+                // bytes long and the tail is the ECU's pad byte. Trimming by the declared
+                // length rather than stripping a known pad value is what lets a genuine
+                // final 0x55 or 0xAA survive -- obd_scan's assemble_multiframe reaches the
+                // same conclusion independently, and pads differ by ECU anyway.
+                //
+                // SHORT MEANS DROPPED, NOT SMALL. If the fragments do not add up to the
+                // declared length a frame went missing, and the honest answer is silence:
+                // a truncated payload decodes as a plausible wrong number, which is worse
+                // than an identifier we ask about again. Also from obd_scan, which guards
+                // the same case and states the reason better than the first draft here did.
+                if (declared > 0) {
+                    if (hex.length < declared * 2) { buf.setLength(0); declared = -1; nextIdx = -1; return }
+                    if (hex.length > declared * 2) hex = hex.substring(0, declared * 2)
+                }
+                out.add(hex)
+                buf.setLength(0)
+            }
+            declared = -1; nextIdx = -1
+        }
+        for (line in raw.split('\r', '\n', '>')) {
+            val t = line.uppercase().replace(" ", "").trim()
+            if (t.isEmpty()) continue
+            val colon = t.indexOf(':')
+            if (colon in 1..2 && t.take(colon).all { it in "0123456789ABCDEF" }) {
+                val idx = t.take(colon).toInt(16) and 0xF
+                // A frame index that does not follow the last one is a different message,
+                // not a gap in this one. The counter is four bits, so F is followed by 0 --
+                // comparing against the expected next index gets the wrap right and still
+                // splits two replies that each start at 0.
+                if (buf.isNotEmpty() && idx != nextIdx) flush()
+                buf.append(t.substring(colon + 1))
+                nextIdx = (idx + 1) and 0xF
+                continue
+            }
+            flush()
+            // A bare three-digit line is the ISO-TP length in bytes, belonging to the frames
+            // that follow. It is never a payload: a payload is an even number of hex digits.
+            if (t.length == 3 && t.all { it in "0123456789ABCDEF" }) { declared = t.toInt(16); continue }
+            out.add(t)
+        }
+        flush()
+        return out
+    }
+
+    /**
      * EVERY payload in a reply, not just the first.
      *
      * A functional broadcast is answered by every ECU on the bus, and they do not agree.
@@ -116,9 +199,8 @@ object Obd {
         val mode = req.substring(0, 2).toIntOrNull(16) ?: return emptyList()
         val expect = "%02X".format(mode + 0x40) + req.substring(2)
         val out = ArrayList<ByteArray>()
-        for (line in raw.split('\r', '\n', '>')) {
-            val t = line.uppercase().replace(" ", "").trim()
-            if (t.isEmpty() || !t.startsWith(expect)) continue
+        for (t in messages(raw)) {
+            if (!t.startsWith(expect)) continue
             val hex = t.substring(expect.length)
             if (hex.isEmpty() || hex.length % 2 != 0) continue
             if (!hex.all { it in "0123456789ABCDEF" }) continue
@@ -135,9 +217,7 @@ object Obd {
         if (req.length < 2) return null
         val mode = req.substring(0, 2).toIntOrNull(16) ?: return null
         val expect = "%02X".format(mode + 0x40) + req.substring(2)
-        for (line in raw.split('\r', '\n', '>')) {
-            val t = line.uppercase().replace(" ", "").trim()
-            if (t.isEmpty()) continue
+        for (t in messages(raw)) {
             if (!t.startsWith(expect)) continue
             val hex = t.substring(expect.length)
             if (hex.isEmpty() || hex.length % 2 != 0) continue
@@ -150,6 +230,21 @@ object Obd {
     }
 
     fun hex(b: ByteArray): String = b.joinToString("") { "%02X".format(it.toInt() and 0xFF) }
+
+    /**
+     * The one timestamp format this project writes, UTC.
+     *
+     * Shared so a stage result and the drive log that followed it sort together with no
+     * conversion -- the CSV has stamped every row with this since the beginning, and the
+     * file saying what the vehicle IS had no clock at all. obd_scan reached the same
+     * conclusion and the same format independently (cheeseprince/obd-gauge-cluster#105).
+     */
+    const val ISO_UTC = "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"
+
+    fun isoFormat(): SimpleDateFormat =
+        SimpleDateFormat(ISO_UTC, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+
+    fun isoUtc(ms: Long): String = isoFormat().format(Date(ms))
 }
 
 /** One DID to poll, and the CAN header to ask it under. */
@@ -312,8 +407,7 @@ class ScanRunner(private val ctx: Context, private val ble: ElmBle) {
                     lastError = "columns differ from the previous log — started a new file"
                 }
 
-                val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US)
-                    .apply { timeZone = TimeZone.getTimeZone("UTC") }
+                val iso = Obd.isoFormat()      // one format, shared with the capture file
 
                 java.io.BufferedWriter(java.io.FileWriter(f, appending)).use { out ->
                     if (!appending) {
