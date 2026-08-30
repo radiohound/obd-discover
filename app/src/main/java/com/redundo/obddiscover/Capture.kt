@@ -50,6 +50,79 @@ private const val MAX_PROGRESS_FILES = 40
  */
 private const val SESSION_MAP_MINUTES = 10
 
+/**
+ * Fold every capture for one vehicle into the progress a resumed run starts from.
+ *
+ * Separated from the file reading so it can actually be exercised. The rules here decide
+ * whether an hour of sweeping survives, and until this was testable the only thing standing
+ * behind them was that the source looked right -- which is exactly how a silent data-loss
+ * bug got as far as a commit.
+ *
+ * Captures arrive OLDEST FIRST. Recency decides which fact wins; it never decides which
+ * facts exist.
+ */
+internal fun mergeProgress(
+    captures: List<String>, key: String,
+): Pair<List<DiscoveredBlock>, Set<String>>? {
+    if (key.isEmpty()) return null
+    val merged = LinkedHashMap<String, DiscoveredBlock>()
+    val reconHdrs = LinkedHashSet<String>()
+    var any = false
+    for (text in captures) {
+        try {
+            val o = JSONObject(text)
+            if (o.optString("vin_key") != key) continue
+            val det = o.optJSONArray("detail") ?: continue
+            any = true
+            for (i in 0 until det.length()) {
+                val b = det.optJSONObject(i) ?: continue
+                val name = b.optString("name")
+                val prefix = name.take(4).toIntOrNull(16) ?: continue
+                val recon = ArrayList<String>()
+                b.optJSONArray("recon_hits")?.let { a ->
+                    for (j in 0 until a.length()) recon.add(a.optString(j))
+                }
+                val hits = LinkedHashMap<String, String>()
+                b.optJSONArray("full_hits")?.let { a ->
+                    for (j in 0 until a.length()) {
+                        val e = a.optJSONArray(j) ?: continue
+                        hits[e.optString(0)] = e.optString(1)
+                    }
+                }
+                val prev = merged[name]
+                // Hits union rather than replace: an identifier that answered once is a fact
+                // about the vehicle. swept is sticky, because a later run that never reached
+                // this block does not un-sweep it. empty_runs takes the larger, being a
+                // running count each capture carries forward.
+                val hitMap = LinkedHashMap<String, String>()
+                prev?.fullHits?.forEach { hitMap[it.first] = it.second }
+                hitMap.putAll(hits)
+                val sweptNow = b.optBoolean("swept", hits.isNotEmpty())
+                merged[name] = DiscoveredBlock(
+                    name, prefix,
+                    b.optString("header").ifEmpty { prev?.header ?: "" },
+                    (prev?.reconHits.orEmpty() + recon).distinct(),
+                    hitMap.entries.map { it.key to it.value }.toMutableList(),
+                    swept = sweptNow || (prev?.swept ?: false),
+                    emptyRuns = maxOf(b.optInt("empty_runs", 0), prev?.emptyRuns ?: 0),
+                    // Provenance follows the run that actually swept it.
+                    state = if (sweptNow) b.optString("state", "") else prev?.state ?: "",
+                    sweptAt = if (sweptNow) b.optString("swept_at", "") else prev?.sweptAt ?: "")
+            }
+            o.optJSONArray("recon_headers")?.let { a ->
+                for (j in 0 until a.length()) reconHdrs.add(a.optString(j))
+            }
+            if (o.optJSONArray("recon_headers") == null && o.optBoolean("recon_done", false)) {
+                o.optJSONArray("headers_targeted")?.let { a ->
+                    for (j in 0 until a.length()) reconHdrs.add(a.optString(j))
+                }
+            }
+        } catch (_: Exception) { /* unreadable capture: try the next */ }
+    }
+    if (!any || merged.isEmpty()) return null
+    return merged.values.toList() to reconHdrs
+}
+
 internal fun buzz(ctx: Context, ok: Boolean) = runCatching {
     val v = ctx.getSystemService(android.os.Vibrator::class.java) ?: return@runCatching
     val pattern = if (ok) longArrayOf(0, 120, 90, 120) else longArrayOf(0, 400)
@@ -781,7 +854,7 @@ class CaptureRunner(
                 discover.resumeBlocks = prior?.first ?: emptyList()
                 discover.resumeReconHeaders = prior?.second ?: emptySet()
                 status = when {
-                    forceDiscover -> "re-mapping this vehicle from scratch..."
+                    forceDiscover -> "re-mapping this vehicle from scratch, no time limit..."
                     prior != null -> "continuing the map — " +
                         "${prior.first.count { it.swept && it.fullHits.isNotEmpty() }} block(s) " +
                         "already done"
@@ -790,7 +863,12 @@ class CaptureRunner(
                 }
                 phase = CapPhase.DISCOVER
 
-                discover.budgetMs = SESSION_MAP_MINUTES * 60_000L
+                // CAPTURE takes a bite; Re-map does the whole thing. The clock exists so a
+                // map converges across ordinary drives, not to stop anybody who has actually
+                // set aside the hour -- and without an escape there would be no way left to
+                // run a vehicle to completion at all, which is what a baseline needs.
+                discover.budgetMs =
+                    if (forceDiscover) 0L else SESSION_MAP_MINUTES * 60_000L
                 discover.excludedHeaders = if (mk.isEmpty()) emptySet() else VehicleId.excludedHeaders(mk, also = sib)
                 discover.hintedBlocks = if (mk.isEmpty()) emptyList() else VehicleId.blockPrefixes(mk, also = sib)
                 discover.hintedHeaders = if (mk.isEmpty()) emptyList() else VehicleId.headers(mk, also = sib)
@@ -1013,62 +1091,7 @@ class CaptureRunner(
         val files = dir.listFiles { f -> f.name.startsWith("discover-") && f.name.endsWith(".json") }
             ?.sortedBy { it.lastModified() }        // oldest first: newer facts win
             ?.takeLast(MAX_PROGRESS_FILES) ?: return null
-        val merged = LinkedHashMap<String, DiscoveredBlock>()
-        val reconHdrs = LinkedHashSet<String>()
-        var any = false
-        for (f in files) {
-            try {
-                val o = JSONObject(f.readText())
-                if (o.optString("vin_key") != key) continue
-                val det = o.optJSONArray("detail") ?: continue
-                any = true
-                for (i in 0 until det.length()) {
-                    val b = det.optJSONObject(i) ?: continue
-                    val name = b.optString("name")
-                    val prefix = name.take(4).toIntOrNull(16) ?: continue
-                    val recon = ArrayList<String>()
-                    b.optJSONArray("recon_hits")?.let { a ->
-                        for (j in 0 until a.length()) recon.add(a.optString(j))
-                    }
-                    val hits = LinkedHashMap<String, String>()
-                    b.optJSONArray("full_hits")?.let { a ->
-                        for (j in 0 until a.length()) {
-                            val e = a.optJSONArray(j) ?: continue
-                            hits[e.optString(0)] = e.optString(1)
-                        }
-                    }
-                    val prev = merged[name]
-                    // An identifier that answered once is a fact about the vehicle, so hits
-                    // union rather than replace. swept is sticky for the same reason: a later
-                    // run that never reached this block does not un-sweep it. emptyRuns takes
-                    // the larger, since it is a running count each capture carries forward.
-                    val hitMap = LinkedHashMap<String, String>()
-                    prev?.fullHits?.forEach { hitMap[it.first] = it.second }
-                    hitMap.putAll(hits)
-                    val sweptNow = b.optBoolean("swept", hits.isNotEmpty())
-                    merged[name] = DiscoveredBlock(
-                        name, prefix,
-                        b.optString("header").ifEmpty { prev?.header ?: "" },
-                        (prev?.reconHits.orEmpty() + recon).distinct(),
-                        hitMap.entries.map { it.key to it.value }.toMutableList(),
-                        swept = sweptNow || (prev?.swept ?: false),
-                        emptyRuns = maxOf(b.optInt("empty_runs", 0), prev?.emptyRuns ?: 0),
-                        // Provenance follows the run that actually swept it.
-                        state = if (sweptNow) b.optString("state", "") else prev?.state ?: "",
-                        sweptAt = if (sweptNow) b.optString("swept_at", "") else prev?.sweptAt ?: "")
-                }
-                o.optJSONArray("recon_headers")?.let { a ->
-                    for (j in 0 until a.length()) reconHdrs.add(a.optString(j))
-                }
-                if (o.optJSONArray("recon_headers") == null && o.optBoolean("recon_done", false)) {
-                    o.optJSONArray("headers_targeted")?.let { a ->
-                        for (j in 0 until a.length()) reconHdrs.add(a.optString(j))
-                    }
-                }
-            } catch (_: Exception) { /* unreadable file: try the next */ }
-        }
-        if (!any || merged.isEmpty()) return null
-        return merged.values.toList() to reconHdrs
+        return mergeProgress(files.mapNotNull { runCatching { it.readText() }.getOrNull() }, key)
     }
 
     private fun findCached(key: String): Triple<File, Pair<String, List<String>>, Int>? {

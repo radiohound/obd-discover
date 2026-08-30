@@ -1565,11 +1565,131 @@ class SessionBudgetTest {
     @Test fun progressIsMergedAcrossCapturesNotTakenFromTheNewest() {
         val c = src("Capture.kt")
         val i = c.indexOf("private fun findProgress")
-        val body = c.substring(i, i + 3000)
+        val body = c.substring(i, i + 900)
         assertTrue("oldest first, so newer facts win", body.contains("sortedBy { it.lastModified() }"))
-        assertTrue("every capture for the vehicle is read", !body.contains("return out to"))
-        assertTrue("hits union rather than replace", body.contains("hitMap.putAll(hits)"))
-        assertTrue("swept is sticky", body.contains("|| (prev?.swept ?: false)"))
-        assertTrue("empty_runs takes the larger", body.contains("maxOf(b.optInt(\"empty_runs\", 0)"))
+        assertTrue("every capture is handed to the merge, not just the first",
+            body.contains("mergeProgress(files.mapNotNull"))
+        assertTrue("and the file reading stays out of the merge, so it can be tested",
+            !body.contains("hitMap"))
+        // What the merge actually DOES is asserted in ResumeEndToEndTest, which runs it.
+    }
+}
+
+/**
+ * The resume path, end to end, on captures in the exact shape Discover writes.
+ *
+ * Everything else about resuming is asserted against source text or pure predicates. This
+ * runs the actual merge over actual capture JSON -- the write-read-seed path that had never
+ * once executed in a test, and where a silent data-loss bug reached a commit.
+ */
+class ResumeEndToEndTest {
+
+    /** Written to match Discover's own writer. Drift here should break these tests. */
+    private fun capture(
+        vinKey: String = "a1b2c3d4",
+        blocks: List<String>,
+        reconHeaders: List<String> = emptyList(),
+        reconDone: Boolean = false,
+        targeted: List<String> = emptyList(),
+    ) = """{
+        "build": "test", "state": "warm idle", "vin_key": "$vinKey",
+        "headers_targeted": [${targeted.joinToString(", ") { "\"$it\"" }}],
+        "paused": false, "recon_done": $reconDone,
+        "recon_headers": [${reconHeaders.joinToString(", ") { "\"$it\"" }}],
+        "aborted": false,
+        "detail": [${blocks.joinToString(", ")}]
+    }"""
+
+    private fun block(
+        name: String, header: String = "7DF", swept: Boolean = true,
+        hits: List<Pair<String, String>> = emptyList(), emptyRuns: Int = 0,
+        state: String = "warm idle",
+    ) = """{"name": "$name", "header": "$header", "swept": $swept,
+        "empty_runs": $emptyRuns, "state": "$state", "swept_at": "2026-08-30T12:00:00.000Z",
+        "recon_hits": [], "full_hits": [${
+        hits.joinToString(", ") { "[\"${it.first}\", \"${it.second}\"]" }}]}"""
+
+    private fun merge(vararg caps: String) = mergeProgress(caps.toList(), "a1b2c3d4")
+
+    /** One capture in, the same blocks out. */
+    @Test fun asingleCaptureRoundTrips() {
+        val (blocks, recon) = merge(capture(
+            blocks = listOf(block("2244xx", hits = listOf("224401" to "AB"))),
+            reconHeaders = listOf("7DF")))!!
+        assertEquals(1, blocks.size)
+        assertEquals("2244xx", blocks[0].name)
+        assertTrue(blocks[0].swept)
+        assertEquals(listOf("224401" to "AB"), blocks[0].fullHits)
+        assertEquals(setOf("7DF"), recon)
+    }
+
+    /**
+     * THE FINDING THIS TEST EXISTS FOR. A later, thinner capture -- a re-map stopped two
+     * minutes in -- must not bury an hour of sweeping in the one before it.
+     */
+    @Test fun aThinnerLaterCaptureDoesNotEraseAnEarlierOne() {
+        val rich = capture(blocks = (0x40..0x48).map {
+            block("22%02Xxx".format(it), hits = listOf("22%02X01".format(it) to "AB"))
+        })
+        val thin = capture(blocks = listOf(block("2244xx", hits = listOf("224401" to "AB"))))
+        val (blocks, _) = merge(rich, thin)!!
+        assertEquals("every block from the richer capture survives", 9, blocks.size)
+    }
+
+    /** Hits union: an identifier that answered once is a fact about the vehicle. */
+    @Test fun hitsFromBothSessionsAreKept() {
+        val a = capture(blocks = listOf(block("2244xx", hits = listOf("224401" to "AB"))))
+        val b = capture(blocks = listOf(block("2244xx", hits = listOf("224402" to "CD"))))
+        val ids = merge(a, b)!!.first.single().fullHits.map { it.first }
+        assertEquals(listOf("224401", "224402"), ids)
+    }
+
+    /** A later run that never reached a block must not un-sweep it. */
+    @Test fun sweptIsSticky() {
+        val done = capture(blocks = listOf(block("2244xx", hits = listOf("224401" to "AB"))))
+        val notReached = capture(blocks = listOf(block("2244xx", swept = false)))
+        assertTrue(merge(done, notReached)!!.first.single().swept)
+    }
+
+    /** empty_runs is a running count, so the larger wins and the escape hatch still works. */
+    @Test fun emptyRunsAccumulateAcrossCaptures() {
+        val one = capture(blocks = listOf(block("2244xx", emptyRuns = 1)))
+        val two = capture(blocks = listOf(block("2244xx", emptyRuns = 2)))
+        assertEquals(2, merge(two, one)!!.first.single().emptyRuns)
+    }
+
+    /** Recon headers accumulate, so a session finishing one more does not lose the rest. */
+    @Test fun reconHeadersAccumulate() {
+        val a = capture(blocks = listOf(block("2244xx")), reconHeaders = listOf("7DF"))
+        val b = capture(blocks = listOf(block("2244xx")), reconHeaders = listOf("7E1"))
+        assertEquals(setOf("7DF", "7E1"), merge(a, b)!!.second)
+    }
+
+    /** A capture from before recon_headers said yes for the whole vehicle. */
+    @Test fun anOlderCompletedCaptureCountsEveryHeaderItTargeted() {
+        val old = """{"vin_key": "a1b2c3d4", "recon_done": true,
+            "headers_targeted": ["7DF", "7E1"],
+            "detail": [${block("2244xx", hits = listOf("224401" to "AB"))}]}"""
+        assertEquals(setOf("7DF", "7E1"), merge(old)!!.second)
+    }
+
+    /** Another vehicle's captures must never leak into this one's progress. */
+    @Test fun anotherVehicleIsIgnored() {
+        val other = capture(vinKey = "ffffffff", blocks = listOf(block("2299xx")))
+        val mine = capture(blocks = listOf(block("2244xx")))
+        assertEquals(listOf("2244xx"), merge(other, mine)!!.first.map { it.name })
+    }
+
+    /** Unreadable files are skipped, not fatal: one bad capture cannot cost the map. */
+    @Test fun aCorruptCaptureIsSkipped() {
+        val good = capture(blocks = listOf(block("2244xx", hits = listOf("224401" to "AB"))))
+        assertEquals(1, merge("{ not json at all", good)!!.first.size)
+    }
+
+    /** Nothing for this vehicle means nothing to resume, not an empty map. */
+    @Test fun noMatchingCaptureReturnsNull() {
+        assertNull(merge(capture(vinKey = "ffffffff", blocks = listOf(block("2244xx")))))
+        assertNull(mergeProgress(emptyList(), "a1b2c3d4"))
+        assertNull(mergeProgress(listOf(capture(blocks = listOf(block("2244xx")))), ""))
     }
 }
