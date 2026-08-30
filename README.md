@@ -6,9 +6,9 @@ adapter — no laptop.
 **You need two things:** an Android phone (8.0 or later) and a **Bluetooth Low Energy
 ELM327 adapter** plugged into the car's OBD-II port. The adapter is not optional and it
 must be BLE — a Bluetooth Classic or Wi-Fi dongle cannot work with this app. If you are
-buying one, get a **[Vgate iCar Pro BLE 4.0](#hardware)** — it works out of the box with
-nothing to configure. The Vgate vLinker MS is verified too, but ships in a mode where it
-will not advertise over BLE at all until you change one setting. See [Hardware](#hardware).
+buying one, get a **[Vgate iCar Pro BLE 4.0](#hardware)** — it works out of the box with no
+configuration. The Vgate vLinker MS is verified too, but it ships in Classic mode and has to
+be switched to BLE once before it will advertise at all. See [Hardware](#hardware).
 
 Most OBD tools can only read parameters somebody already wrote down for your car. This one
 finds them: it probes the vehicle's Mode-22 address space — or, on a pre-CAN car, its Mode-01,
