@@ -97,7 +97,7 @@
       "confidence": "inferred",
       "r": 0.999,
       "against": "legislated coolant PID 0105",
-      "verified": "raw - 40, the SAE form. Against the legislated coolant PID: r=0.999, slope 0.979, offset +3.4 degC -- a DIFFERENT measuring point on the engine rather than a mirror of 0105, which is what the offset shows. Recorded as inferred only because the sample count behind the r was not preserved; the correlation itself is well above the 0.90 floor.",
+      "verified": "raw - 40, the SAE form. Against the legislated coolant PID: r=0.999, slope 0.979, offset +3.4 degC -- a DIFFERENT measuring point on the engine rather than a mirror of 0105, which is what the offset shows. Recorded as inferred only because the sample count behind the r was not preserved; the correlation itself is well above the 0.90 floor. Re-measured against this project's own warm-up log: r=+0.9966 over 19 samples. Above the 0.90 floor and below the 30-sample one, so it stays inferred rather than correlated -- only one road test here captured a warm-up, and it is 31 rows.",
       "source": "identified in this project's own sweeping of the enhanced blocks"
     },
     {
@@ -110,7 +110,7 @@
       "confidence": "inferred",
       "r": 0.9896,
       "against": "coolant temperature",
-      "verified": "value x 0.75 - 48, the community temperature form. Anchored against the legislated coolant PID rather than assumed, at r=0.9896 with zero lag. That establishes it is an engine temperature; that it is specifically the OIL temperature rests on the block it sits in and on 0x2244 reading as a temperature range throughout. Not swept at all until 2026-08-23.",
+      "verified": "value x 0.75 - 48, the community temperature form. Anchored against the legislated coolant PID rather than assumed, at r=0.9896 with zero lag. That establishes it is an engine temperature; that it is specifically the OIL temperature rests on the block it sits in and on 0x2244 reading as a temperature range throughout. Not swept at all until 2026-08-23. Re-measured here against the same warm-up log: r=+0.9803 over 19 samples. Same shortfall.",
       "source": "identified in this project's own sweeping of 0x2258xx"
     },
     {
@@ -140,8 +140,17 @@
       "unit": "%",
       "scale": 0.392,
       "confidence": "inferred",
-      "verified": "raw / 2.55, giving percent. Slope 0.976 against the legislated load PID. Recorded as inferred because the r and sample count were not preserved.",
+      "verified": "raw / 2.55, giving percent. Slope 0.976 against the legislated load PID. Recorded as inferred because the r and sample count were not preserved. Does NOT reproduce in this project's logs: r=-0.19 against the legislated load PID over 19 samples. That is probably the test rather than the signal -- rows are about 8 s apart and load changes faster than that, so a sparse log cannot track it. Coolant and oil temperature correlate at the same spacing precisely because they are slow. Confirming this one needs a dense log, not a longer one.",
       "source": "identified in this project's own sweeping of the enhanced blocks"
+    },
+    {
+      "did": "225817",
+      "header": "7DF",
+      "name": "unidentified \u2014 duplicate of 2258EB",
+      "unit": "",
+      "confidence": "guess",
+      "verified": "Byte-identical to 2258EB in 19 of 19 rows of a warm-up log here, independent of the separate finding that the two match on 99.51% of 1,427 rows elsewhere. Two identifiers carrying one signal. Both were oil-temperature candidates; neither is identified.",
+      "source": "this project's own drive logs"
     },
     {
       "did": "22586F",
@@ -196,5 +205,13 @@
     "7E0": "silent",
     "7E2": "silent",
     "note": "settled by the ECUs' own supported-PID bitmaps rather than by guessing headers"
-  }
+  },
+  "open_questions": [
+    "224303 and 224A4B promote to `correlated` given a cold-start log of 30+ samples. Only one road test here caught a warm-up and it yielded 19.",
+    "224A4B needs a DENSE log rather than a long one: load moves faster than the ~8 s row interval, so sparse sampling cannot confirm it.",
+    "2258BA wants MAF-derived power as its anchor, not rpm. Against rpm it scores r=+0.46 here, which says nothing -- torque is not a function of engine speed.",
+    "22586F's scale is unverified and needs a known-pressure anchor; no road test can supply one, so this wants a gauge or a spec figure at a known operating point.",
+    "2258F3 holds the limiter's value in all five sweeps but constants cannot be told apart by correlation. Distinguishing it from 224A2E needs a car with a different limiter.",
+    "225817 and 2258EB are one signal under two identifiers and neither is identified."
+  ]
 }
