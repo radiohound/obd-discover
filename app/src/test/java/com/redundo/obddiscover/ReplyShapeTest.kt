@@ -919,7 +919,7 @@ class ScanRunsOnCachedCaptureTest {
             cap.contains("cached map updated"))
         // Only ever upward: a short scan must not overwrite a fuller stored list.
         assertTrue("and must not replace a fuller list with a shorter one",
-            cap.contains("if (stdPids.size > had)"))
+            cap.contains("if (stdPids.size > was)"))
     }
 }
 
@@ -1020,8 +1020,10 @@ class BuildStampTest {
     @Test fun aStaleMapIsFlaggedOnScreen() {
         val c = java.io.File("src/main/java/com/redundo/obddiscover/Capture.kt").readText()
         assertTrue("coverage must compare against the running build",
-            c.contains("b != BuildTag.ID"))
+            c.contains("oldBuild == BuildTag.ID"))
         assertTrue("and say so", c.contains("mapped on"))
+        assertTrue("and show the transition rather than a bare total",
+            c.contains("standard PIDs\" else") && c.contains("\\u2192"))
         val ui = java.io.File("src/main/java/com/redundo/obddiscover/MainActivity.kt").readText()
         assertTrue("the screen must show coverage", ui.contains("cap.coverage"))
     }

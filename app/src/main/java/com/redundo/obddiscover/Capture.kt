@@ -674,28 +674,31 @@ class CaptureRunner(
                 val (file, plan, skipped) = cached
                 // WHAT THIS CAR ALREADY HAS, on screen, so "do I need to scan this again?"
                 // is answerable without pulling files off the phone.
+                // WHAT THIS CAR HAS, computed after this scan folds in, so the line
+                // reflects the truth as it now stands rather than what was on disk a moment
+                // ago. Shows the transition: "2 → 45 standard PIDs" says the rescan was
+                // worth doing, where a bare "45" leaves you wondering whether it did
+                // anything.
                 coverage = runCatching {
                     val o = JSONObject(file.readText())
-                    val b = o.optString("build")
-                    val pids = o.optJSONArray("mode01")?.length() ?: 0
+                    val was = o.optJSONArray("mode01")?.length() ?: 0
+                    val oldBuild = o.optString("build")
                     val blocks = o.optJSONArray("blocks")?.length() ?: 0
-                    val stale = b.isEmpty() || b != BuildTag.ID
-                    "$blocks blocks · $pids standard PIDs" +
-                        if (stale) "  ⚠ mapped on ${b.ifEmpty { "an older build" }}" else "  ✓ current"
-                }.getOrDefault("")
-                // The cached map is not rewritten by a cache hit, so a fresh scan would be
-                // lost to everything that reads the map afterwards -- the contribute export
-                // included. Fold it in, so a ten-second capture on a known vehicle still
-                // improves what is on disk.
-                if (stdPids.isNotEmpty()) runCatching {
-                    val o = JSONObject(file.readText())
-                    val had = o.optJSONArray("mode01")?.length() ?: 0
-                    if (stdPids.size > had) {
+                    var now = was
+                    if (stdPids.size > was) {
                         o.put("mode01", org.json.JSONArray(stdPids))
+                        o.put("build", BuildTag.ID)
                         file.writeText(o.toString())
-                        ble.log("cached map updated: ${stdPids.size} Mode-01 PIDs")
+                        now = stdPids.size
+                        ble.log("cached map updated: $now Mode-01 PIDs")
                     }
-                }
+                    val pidText =
+                        if (now != was) "$was \u2192 $now standard PIDs" else "$now standard PIDs"
+                    val current = now != was || oldBuild == BuildTag.ID
+                    "$blocks blocks \u00B7 $pidText" +
+                        if (current) "  \u2713 current"
+                        else "  \u26A0 mapped on ${oldBuild.ifEmpty { "an older build" }}"
+                }.getOrDefault("")
                 status = "known vehicle${if (wmi.isNotEmpty()) " ($wmi)" else ""} — " +
                     "${plan.second.size} DIDs already mapped, skipping discovery"
                 detail = "from ${file.name}" +
