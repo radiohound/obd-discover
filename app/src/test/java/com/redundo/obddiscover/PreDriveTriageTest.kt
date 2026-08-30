@@ -161,3 +161,30 @@ class TriageWiringTest {
         assertTrue(src("Discover.kt").contains("if (stopFlag || outOfTime()) { paused = true; break }"))
     }
 }
+
+/**
+ * The summary is worded for a reader, not for the enum.
+ *
+ * MOVED stays as the constant because it is obd_scan's and this project mirrors his names.
+ * On a screen it reads as "found while driving" in an app whose other open question is
+ * whether to map while the car is moving — so the word people see is "dynamic".
+ */
+class TriageWordingTest {
+    @Test fun theSummarySaysDynamicNotMoved() {
+        val r = PreDriveTriage.rank(listOf(
+            PreDriveTriage.Quad("7DF", "220001", "AA", "BB"),   // dynamic
+            PreDriveTriage.Quad("7DF", "220002", "CC", "CC"),   // static
+            PreDriveTriage.Quad("7DF", "220003", "0000", "0000"), // unpopulated
+        ))
+        assertTrue("must read dynamic", r.summary().startsWith("dynamic 1"))
+        assertTrue("must not read moved", !r.summary().contains("moved"))
+        assertTrue("static is unchanged", r.summary().contains("static 1"))
+    }
+
+    /** The constant is untouched, so a comparison with obd_scan still lines up. */
+    @Test fun theEnumStillMatchesUpstream() {
+        assertEquals("MOVED", PreDriveTriage.Kind.MOVED.name)
+        assertEquals("STATIC", PreDriveTriage.Kind.STATIC.name)
+        assertEquals("UNPOPULATED", PreDriveTriage.Kind.UNPOPULATED.name)
+    }
+}

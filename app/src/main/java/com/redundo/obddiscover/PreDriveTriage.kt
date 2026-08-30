@@ -58,8 +58,17 @@ object PreDriveTriage {
         val unpopulated: Int,
         val duplicates: Int,
     ) {
+        /**
+         * Worded for a reader, not for the enum.
+         *
+         * The constant stays MOVED, because it is obd_scan's and this project mirrors his
+         * names so the two cannot quietly disagree. But "moved" on a screen, in an app whose
+         * other open question is whether a map should be built while the car is moving, reads
+         * as "found while driving" rather than "its bytes changed between two reads". Same
+         * classification, a word that cannot be misread.
+         */
         fun summary(): String =
-            "moved $moved  |  static $static  |  unpopulated $unpopulated  |  duplicates $duplicates"
+            "dynamic $moved  |  static $static  |  unpopulated $unpopulated  |  duplicates $duplicates"
     }
 
     /**

@@ -145,9 +145,14 @@ a question the app could not answer: there was no moment between *mapping* and
 *the drive*. The session budget created one, and it runs there.
 
 Each hit is asked once more and compared against what the sweep stored. Bytes
-differed — a live signal. Identical — static, which is not the same as worthless,
-since coolant at equilibrium and a stopped car both hold still. All `00` or all
-`FF` twice — answering and carrying nothing.
+differed — a live signal, reported as **dynamic**. Identical — static, which is
+not the same as worthless, since coolant at equilibrium and a stopped car both
+hold still. All `00` or all `FF` twice — answering and carrying nothing.
+
+The classification is `MOVED` in the source, because that is `obd_scan`'s name
+and this project mirrors his so the two cannot quietly disagree. On a screen it
+reads as *found while driving*, which is a different claim entirely and a live
+question elsewhere in this app, so the word a person sees is **dynamic**.
 
 **The drive drops only what two standing probes prove.** An `UNPOPULATED`
 identifier carries nothing by definition, and a duplicate is a second name for a
