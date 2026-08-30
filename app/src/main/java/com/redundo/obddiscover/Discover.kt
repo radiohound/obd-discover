@@ -728,6 +728,34 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
     var triageNote by mutableStateOf(""); private set
 
     /**
+     * The 12 V rail, read from the adapter itself at the start and end of a run.
+     *
+     * ATRV is one command and reports the voltage at the OBD socket. This app has never sent
+     * it, and the cost of that showed up the hard way: a dongle holds the bus awake and stops
+     * modules sleeping, so a day of scanning can flatten the 12 V -- and on an EV that
+     * presents as the smart key no longer being recognised, which is indistinguishable from
+     * something far worse until somebody puts a meter on it.
+     *
+     * Six captures of that car exist and not one of them can say what the voltage was. Two
+     * probes per run fixes that permanently, and a run that starts at 12.6 and ends at 11.8
+     * says so in the file rather than in an argument.
+     */
+    private var voltStart = ""
+    private var voltEnd = ""
+
+    /**
+     * "12.4V" from the adapter, or "" if it declined. Never fatal: a missing voltage is a
+     * missing number, and a run must not fail because a clone did not implement ATRV.
+     */
+    private fun readVolts(): String {
+        val (raw, ok) = ble.cmd("ATRV", 2_000)
+        if (!ok) return ""
+        val m = Regex("([0-9]+\\.[0-9]+)\\s*V", RegexOption.IGNORE_CASE).find(raw)
+            ?: Regex("([0-9]+\\.[0-9]+)").find(raw)
+        return m?.groupValues?.get(1)?.let { "$it" } ?: ""
+    }
+
+    /**
      * How long this session is willing to spend mapping before handing over to the drive.
      *
      * A map is now a queue that survives being put down, so there is no longer any reason to
@@ -810,6 +838,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
         nrcByHeader.clear(); refusals.clear(); timeouts = 0; retries = 0; consecutiveDead = 0; curHeader = ""
         stopping = false; aborted = false; matchedModels = emptyList(); allHits = emptyList()
         runStartMs = System.currentTimeMillis()
+        voltStart = ""; voltEnd = ""
         knownTotal = 0; reconTotalP = 0; pctFloor = 0; etaSecs = 0.0; etaFirstSecs = 0.0
         paused = false; triage.clear(); triageNote = ""
         estBlocks = Discover.blockPrior(hintedBlocks.size)
@@ -1001,6 +1030,12 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                                 "unchanged — sessions are comparable")
                         }
                     }
+                }
+
+                // Before anything is asked of the vehicle, and again when the run ends.
+                if (voltStart.isEmpty()) {
+                    voltStart = readVolts()
+                    if (voltStart.isNotEmpty()) ble.log("battery: ${voltStart}V at start")
                 }
 
                 // --- phase 0: ask for what is already known, by name ------------------
@@ -1327,6 +1362,9 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     .filter { it.kind == PreDriveTriage.Kind.UNPOPULATED || it.duplicateOf != null }
                     .map { "${it.header}|${it.request}" }.toSet()
 
+                voltEnd = readVolts()
+                if (voltEnd.isNotEmpty()) ble.log("battery: ${voltEnd}V at end")
+
                 // Stamped once, before writing, so the filename and finished_at agree
                 // rather than differing by however long serialising takes.
                 val finishedMs = System.currentTimeMillis()
@@ -1413,6 +1451,10 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     out.write("\"triage\": {" + triage.entries.joinToString(", ") {
                         "\"${it.key}\": \"${it.value}\""
                     } + "},\n")
+                    // The 12 V rail at both ends of the run. A dongle keeps the bus awake,
+                    // and a day of scanning can flatten a battery -- which on an EV looks
+                    // exactly like the key having stopped working.
+                    out.write("\"battery_v\": {\"start\": \"$voltStart\", \"end\": \"$voltEnd\"},\n")
                     out.write("\"paused\": $paused,\n")
                     out.write("\"recon_done\": $reconComplete,\n")
                     out.write("\"recon_headers\": [${reconDoneHdrs.joinToString(", ") { "\"$it\"" }}],\n")

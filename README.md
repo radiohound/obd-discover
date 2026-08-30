@@ -128,6 +128,13 @@ path has never produced a match on a real vehicle and should not be relied on: O
 models across modules this app deliberately never probes, so the pairs that would tell two
 models apart are usually invisible to it.
 
+The drive log is narrower than the map, on purpose. Every identifier found is asked
+once more standing still and compared against what the sweep read: bytes that changed
+are live, identical is static, all `00` or all `FF` twice is answering and carrying
+nothing. The log drops only what two probes prove worthless — the blanks, and second
+names for a signal already carried. On a BMW F10 that was 705 identifiers down to 414
+columns, 185 blank and 106 duplicates, and nothing left the capture file.
+
 A map is built ten minutes at a time rather than in one sitting, because a modern
 vehicle answers with more identifiers than a single session can find or a single drive
 can log — 1,936 on a Silverado HD. See

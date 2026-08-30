@@ -160,6 +160,23 @@ signal already in the log — on an F10, `225817` and `2258EB` were byte-identic
 across 99.51% of 1,427 logged rows, and finding that cost a whole drive. `STATIC`
 stays. Nothing is removed from the capture; only the drive plan is narrowed.
 
+### Measured, on a BMW F10
+
+The first run of this pass, 30 August 2026: **705 identifiers, 705 classified.**
+
+| | |
+| :--- | ---: |
+| dynamic | 339 |
+| static | 181 |
+| unpopulated | 185 |
+| duplicates collapsed | 106 |
+
+The drive log came out at **414 identifier columns from 705** — 41% narrower — and
+the capture kept every one. Among the dropped were `224404`, `224405` and `224406`,
+which `PreDriveTriage`'s own docstring names as reading `0000` on every probe on this
+engine, and the `225817`/`2258EB` pair whose duplication previously took a whole drive
+to notice. Two probes standing still, 705 of them, in 705 seconds of a four-minute run.
+
 Classifications persist per identifier and per state, the same way swept blocks
 do. Re-deciding 703 identifiers on every plug-in would spend a quarter of a
 session repeating itself, and `STATIC` at warm idle against `MOVED` while driving
