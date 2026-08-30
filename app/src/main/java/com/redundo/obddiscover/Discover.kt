@@ -1009,8 +1009,19 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     selectHeader(hdr)
                     for (req in reqs) {
                         if (stopFlag) break
-                        val (present, payload, _) = ask(req)
+                        val (present, payload, nak) = ask(req)
                         probes++; probesKnown++; kdone++
+                        // A REFUSAL IS PROOF THE MODULE SPEAKS THE SERVICE. This was only
+                        // credited during recon, so a header that answered "no such
+                        // identifier" here and was never reached by recon looked, in the
+                        // file, like a header that says nothing at all.
+                        //
+                        // A 2025 Ioniq 5 did exactly that: 7E4 replied 0x31 requestOutOfRange
+                        // to phase 0 -- understanding Mode 22 and declining those particular
+                        // DIDs -- and the capture still reported speaks_mode22 as 7DF and 7E2
+                        // only, because the budget ended before recon got there. The evidence
+                        // was in the run and thrown away by the writer.
+                        if (nak) speaksMode22.add(hdr)
                         if (present && payload != null) {
                             knownHits.getOrPut("%s|%s".format(hdr, req.substring(0,4))) { mutableListOf() }
                                 .add(req to payload)

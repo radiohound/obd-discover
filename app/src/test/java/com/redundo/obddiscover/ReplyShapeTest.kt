@@ -1848,3 +1848,32 @@ class ReconCompletionCountsTest {
         assertTrue("guarded on prior being present", src.contains("prior != null && prior.second.isEmpty()"))
     }
 }
+
+/**
+ * A refusal is proof the module speaks the service, wherever it arrives.
+ *
+ * speaks_mode22 was credited only from recon, so a header that answered "no such identifier"
+ * during phase 0 and was never reached by recon read, in the file, as a header that says
+ * nothing. A 2025 Ioniq 5's 7E4 did precisely that: 0x31 requestOutOfRange to phase 0,
+ * understanding Mode 22 and declining those DIDs, reported as silent.
+ */
+class RefusalsCountWhereverTheyArriveTest {
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Discover.kt").readText()
+
+    @Test fun phaseZeroRefusalsCountToo() {
+        assertTrue("phase 0 must exist", src.contains("probes++; probesKnown++; kdone++"))
+        // hdr is phase 0's loop variable; recon's is h. Naming them apart is what makes
+        // this assertion able to tell the two sites from each other.
+        assertTrue("the refusal flag must be read in phase 0",
+            src.contains("val (present, payload, nak) = ask(req)"))
+        assertTrue("and credited there", src.contains("if (nak) speaksMode22.add(hdr)"))
+    }
+
+    /** Recon still credits them, so nothing was traded away. */
+    @Test fun reconStillCreditsRefusals() {
+        assertTrue(src.contains("if (nak) speaksMode22.add(h)"))
+    }
+}
