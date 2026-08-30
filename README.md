@@ -128,6 +128,12 @@ path has never produced a match on a real vehicle and should not be relied on: O
 models across modules this app deliberately never probes, so the pairs that would tell two
 models apart are usually invisible to it.
 
+A map is built ten minutes at a time rather than in one sitting, because a modern
+vehicle answers with more identifiers than a single session can find or a single drive
+can log — 1,936 on a Silverado HD. See
+[docs/resumable-mapping.md](docs/resumable-mapping.md) for the measurements and the
+reasoning.
+
 Since this release the app also carries its own database, in [`vehicles/`](vehicles/): one
 record per car somebody actually scanned, holding the headers, blocks, PIDs and Mode-21
 identifiers it really answered. **These lead the hint order**, ahead of the community lists,
