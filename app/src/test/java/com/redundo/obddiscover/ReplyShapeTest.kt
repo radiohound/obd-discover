@@ -1768,14 +1768,15 @@ class ResumeBeatsAStaleCacheTest {
     /** Progress is consulted before the cache, not inside the branch the cache skips. */
     @Test fun progressIsReadBeforeTheCacheDecision() {
         val prior = src.indexOf("val prior = if (forceDiscover) null else findProgress(vinKey)")
-        val cached = src.indexOf("val cached = if (forceDiscover || unfinished)")
+        val cached = src.indexOf("val cached = if (forceDiscover || unfinished")
         assertTrue("progress must be read", prior > 0)
         assertTrue("and read first", prior < cached)
     }
 
     /** Unfinished work anywhere in the merged view means resume, whatever one file claims. */
     @Test fun unfinishedWorkSuppressesTheCache() {
-        assertTrue(src.contains("val cached = if (forceDiscover || unfinished) null else findCached(vinKey)"))
+        assertTrue(src.contains(
+            "val cached = if (forceDiscover || unfinished || untriaged) null else findCached(vinKey)"))
     }
 
     /** Finished uses the same rule the sweeps use: swept, and either answered or twice empty. */
@@ -1836,16 +1837,32 @@ class ReconCompletionCountsTest {
             .first { java.io.File(it, "README.md").isFile },
         "app/src/main/java/com/redundo/obddiscover/Capture.kt").readText()
 
-    @Test fun unknownReconCountsAsUnfinished() {
-        assertTrue("recon completion must be tested",
-            src.contains("val reconUnknown = prior != null && prior.second.isEmpty()"))
-        assertTrue("and must feed the decision",
-            src.contains("val unfinished = blocksLeft || reconUnknown"))
+    /**
+     * Recon is finished when every header that has ever answered has been walked -- not
+     * when something was recorded. An Ioniq 5 with 7DF reconned and four headers untouched
+     * read as done, and its battery module is in one of the four.
+     */
+    @Test fun reconIsJudgedByCoverageNotByPresence() {
+        assertTrue("headers that have answered must be gathered",
+            src.contains("val everLive = findLiveHeaders(vinKey)"))
+        assertTrue("and every one of them checked against what recon walked",
+            src.contains("everLive.any { it !in prior.second }"))
+        assertTrue("and feed the decision", src.contains("val unfinished = blocksLeft || reconLeft"))
     }
 
     /** A vehicle with no captures at all is not "unfinished" -- it is simply new. */
     @Test fun aVehicleWithNoHistoryIsNotUnfinished() {
-        assertTrue("guarded on prior being present", src.contains("prior != null && prior.second.isEmpty()"))
+        assertTrue("guarded on prior being present", src.contains("val reconLeft = prior != null &&"))
+    }
+
+    /**
+     * A fully mapped vehicle still needs triaging once, or the cars with the biggest maps --
+     * the ones whose drives most need narrowing -- are exactly the ones that skip discovery
+     * and never get it.
+     */
+    @Test fun anUntriagedMapIsNotFinishedEither() {
+        assertTrue("untriaged identifiers must be counted", src.contains("val untriaged = prior?.first"))
+        assertTrue("and suppress the cache", src.contains("forceDiscover || unfinished || untriaged"))
     }
 }
 

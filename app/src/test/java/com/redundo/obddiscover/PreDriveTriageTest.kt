@@ -125,7 +125,10 @@ class TriageWiringTest {
         assertTrue("prior decisions come in", d.contains("triage.putAll(resumeTriage)"))
         assertTrue("and filter what gets probed",
             d.contains("""triage["${'$'}h|${'$'}req"]?.endsWith("@${'$'}stateNow") != true"""))
-        assertTrue("and are read back", src("Capture.kt").contains("discover.resumeTriage = findTriage"))
+        val c = src("Capture.kt")
+        assertTrue("and are read back",
+            c.contains("val priorTriage = findTriage(vinKey)") &&
+                c.contains("discover.resumeTriage = priorTriage"))
     }
 
     /** STATIC at warm idle and MOVED while driving is the distinction being drawn. */

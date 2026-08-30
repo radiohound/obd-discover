@@ -849,9 +849,23 @@ class CaptureRunner(
             val blocksLeft = prior?.first?.any {
                 !(it.swept && (it.fullHits.isNotEmpty() || it.emptyRuns >= 2))
             } ?: false
-            val reconUnknown = prior != null && prior.second.isEmpty()
-            val unfinished = blocksLeft || reconUnknown
-            val cached = if (forceDiscover || unfinished) null else findCached(vinKey)
+            // Recon is finished when every header that has ever answered has been walked,
+            // not when something was recorded. An Ioniq 5 with 7DF reconned and 7E2, 744,
+            // 7E3 and 7E4 untouched is four modules short of a map, and its battery is in
+            // one of them.
+            val everLive = findLiveHeaders(vinKey)
+            val reconLeft = prior != null &&
+                (everLive.isEmpty() || everLive.any { it !in prior.second })
+            val unfinished = blocksLeft || reconLeft
+            // A FULLY MAPPED VEHICLE STILL NEEDS TRIAGING ONCE. Otherwise the cars that
+            // most need a narrower drive -- the ones with the biggest maps -- are exactly
+            // the ones that skip discovery and never get one. A BMW carrying 703 identifiers
+            // is 1.7 minutes a row until something classifies them.
+            val priorTriage = findTriage(vinKey)
+            val untriaged = prior?.first.orEmpty()
+                .flatMap { b -> b.fullHits.map { "${b.header}|${it.first}" } }
+                .any { it !in priorTriage }
+            val cached = if (forceDiscover || unfinished || untriaged) null else findCached(vinKey)
             if (cached != null) {
                 val (file, plan, skipped) = cached
                 // WHAT THIS CAR ALREADY HAS, on screen, so "do I need to scan this again?"
@@ -892,7 +906,7 @@ class CaptureRunner(
                 // costs ten minutes; logging the wrong car's DIDs costs the whole drive.
                 discover.resumeBlocks = prior?.first ?: emptyList()
                 discover.resumeReconHeaders = prior?.second ?: emptySet()
-                discover.resumeTriage = findTriage(vinKey)
+                discover.resumeTriage = priorTriage
                 status = when {
                     forceDiscover -> "re-mapping from scratch — $SESSION_MAP_MINUTES min, then the drive"
                     prior != null -> "continuing the map — " +
@@ -1150,6 +1164,36 @@ class CaptureRunner(
                 if (o.optString("vin_key") != key) continue
                 val t = o.optJSONObject("triage") ?: continue
                 for (k in t.keys()) out[k] = t.optString(k)
+            } catch (_: Exception) { /* unreadable capture: try the next */ }
+        }
+        return out
+    }
+
+    /**
+     * Headers that answered on any earlier run of this vehicle.
+     *
+     * Recon completion has to be judged against these, not against whether anything was
+     * recorded at all. An Ioniq 5 had five headers answer and exactly one of them reconned,
+     * and "some recon" read as "recon done" -- so the vehicle with four unexplored modules,
+     * including the battery, would have gone straight to the drive and never mapped again.
+     *
+     * Third time this project has read a partial state as a finished one. The shape is
+     * always the same: a field that records progress, tested for presence instead of for
+     * coverage.
+     */
+    private fun findLiveHeaders(key: String): Set<String> {
+        if (key.isEmpty()) return emptySet()
+        val dir = File(ctx.getExternalFilesDir(null), "logs")
+        val files = dir.listFiles { f -> f.name.startsWith("discover-") && f.name.endsWith(".json") }
+            ?.sortedBy { it.lastModified() }?.takeLast(MAX_PROGRESS_FILES) ?: return emptySet()
+        val out = LinkedHashSet<String>()
+        for (f in files) {
+            try {
+                val o = JSONObject(f.readText())
+                if (o.optString("vin_key") != key) continue
+                o.optJSONArray("headers_targeted")?.let { a ->
+                    for (j in 0 until a.length()) out.add(a.optString(j))
+                }
             } catch (_: Exception) { /* unreadable capture: try the next */ }
         }
         return out
