@@ -442,6 +442,8 @@ class CaptureRunner(
             // Optional, off by default, and never blocking the scan. Ten characters go out;
             // the six that identify this specific vehicle do not. See VinLookup.
             modelName = ""; modelClean = ""; modelSeries = ""; vpicRepo = ""
+            // Kept apart from modelClean because the vPIC lookup below overwrites that one.
+            var modelFromRecords = ""
             // THE OFFLINE ANSWER FIRST, because we may already have it. vehicles/ ships a
             // pattern -> make/model/year table built from cars people scanned, and until
             // now nothing consulted it: a Subaru whose pattern JF2SJARC is IN the shipped
@@ -453,6 +455,7 @@ class CaptureRunner(
             if (vin.isNotEmpty()) {
                 VehicleId.contributedId(vin)?.let { (_, model) ->
                     if (model.isNotEmpty()) {
+                        modelFromRecords = model
                         modelClean = model
                         modelName = listOfNotNull(info?.year?.toString(), model)
                             .joinToString(" ")
@@ -494,12 +497,24 @@ class CaptureRunner(
             // lives, five at 7E5 for the charger, and single entries at 7C6 for the odometer
             // and 7A0, 730, 7D1 -- which are precisely the modules a blind recon spends a
             // hundred minutes looking for. Twelve seconds of asking, against that.
-            val tierOurs = if (mk.isEmpty()) emptyList() else VehicleId.contributedRequests(mk, modelClean)
-            val tierModel = if (mk.isEmpty()) emptyList() else VehicleId.supportedForModel(mk, modelClean)
+            // EVERY NAME THIS CAR GOES BY, because the sources do not agree and there is no
+            // reason they should. The offline record says "5 Series", which is how both our
+            // own measured lists and OBDb's model sets are keyed. vPIC then overwrites it
+            // with the trim, "535i", which matches neither -- so the confirm pass offered 30
+            // requests instead of 602 and did nothing, twice, on two separate drives.
+            //
+            // vPIC is more specific and better for display, so modelClean keeps it. Lookups
+            // take whichever name hits: series, trim, or what a contributor typed.
+            val modelKeys = listOf(modelFromRecords, modelClean, modelSeries)
+                .filter { it.isNotEmpty() }.distinct()
+            val tierOurs = if (mk.isEmpty()) emptyList() else
+                modelKeys.flatMap { VehicleId.contributedRequests(mk, it) }.distinct()
+            val tierModel = if (mk.isEmpty()) emptyList() else
+                modelKeys.flatMap { VehicleId.supportedForModel(mk, it) }.distinct()
             val tierMake = if (mk.isEmpty()) emptyList() else VehicleId.supportedFor(mk)
             val knownReqs = (tierOurs + tierModel + tierMake).distinct()
             ble.log("known requests: ours=${tierOurs.size} model=${tierModel.size} " +
-                "make=${tierMake.size} for \"$mk\" / \"$modelClean\"")
+                "make=${tierMake.size} for \"$mk\" / ${modelKeys.joinToString("|")}")
             hintNote = if (mk.isEmpty()) "" else {
                 val blocks = VehicleId.blockPrefixes(mk, also = sib)
                 val hdrs = VehicleId.headers(mk, also = sib)

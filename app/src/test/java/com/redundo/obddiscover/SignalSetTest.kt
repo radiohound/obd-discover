@@ -493,3 +493,49 @@ class ModelLookupCaseTest {
         assertTrue(src.contains("it.lowercase() == want"))
     }
 }
+
+/**
+ * A car goes by more than one name, and the sources do not agree.
+ *
+ * From the adapter log of a real BMW run:
+ *     model from contributed records: 5 Series
+ *     vPIC: WBAFR7C53D -> 2013 5-Series 535i
+ *     known requests: ours=0 model=0 make=30 for "BMW" / "535i"
+ *
+ * The offline record says "5 Series", which is how our measured lists AND OBDb's model sets
+ * are both keyed. vPIC overwrote it with the trim. Two drives were spent on a confirm pass
+ * that matched nothing.
+ */
+class ModelNameCandidatesTest {
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+
+    /** The record's name has to survive the vPIC lookup that overwrites modelClean. */
+    @Test fun theRecordsNameIsKeptSeparately() {
+        assertTrue("kept apart from modelClean", src.contains("var modelFromRecords = \"\""))
+        assertTrue("and set where the record is read", src.contains("modelFromRecords = model"))
+    }
+
+    /** All three names are tried: what a contributor typed, the trim, and the series. */
+    @Test fun everyNameIsTried() {
+        val i = src.indexOf("val modelKeys = listOf(")
+        assertTrue("candidates must be built", i > 0)
+        val body = src.substring(i, i + 200)
+        for (n in listOf("modelFromRecords", "modelClean", "modelSeries")) {
+            assertTrue("$n must be a candidate", body.contains(n))
+        }
+    }
+
+    /** Both model-keyed tiers use them, not just one. */
+    @Test fun bothModelTiersUseTheCandidates() {
+        assertTrue(src.contains("modelKeys.flatMap { VehicleId.contributedRequests(mk, it) }"))
+        assertTrue(src.contains("modelKeys.flatMap { VehicleId.supportedForModel(mk, it) }"))
+    }
+
+    /** vPIC stays the display name: it is the more specific one. */
+    @Test fun theDisplayNameIsUnchanged() {
+        assertTrue("vPIC still sets modelClean", src.contains("modelClean = it.model"))
+    }
+}
