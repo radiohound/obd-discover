@@ -691,7 +691,21 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
      * one run finding a block empty is exactly what an outage looks like.
      */
     var resumeBlocks: List<DiscoveredBlock> = emptyList()
-    var resumeReconDone: Boolean = false
+
+    /**
+     * Headers whose recon an earlier run carried all the way to the end.
+     *
+     * Recon is the expensive half and the only half that could not be picked up: 1,792
+     * probes for one header -- ten minutes on an Ioniq 5 -- and eight live headers is 82
+     * minutes before a single block gets swept. A header is the natural unit because recon
+     * selects one, walks all 256 prefixes at seven offsets, and moves on; finishing one
+     * rules out everything in it, and finishing none rules out nothing.
+     *
+     * Per header rather than one flag, because a run interrupted after two of eight headers
+     * has genuinely finished those two, and making it repeat them is the difference between
+     * a map that converges over a week and one that never gets past the first session.
+     */
+    var resumeReconHeaders: Set<String> = emptySet()
 
     /**
      * Something the operator can still do something about, while they are standing there.
@@ -871,7 +885,8 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     blocksFound = found.size
                     ble.log("resuming: ${found.size} block(s) known, $done already swept, " +
                         "$requeued empty and re-queued" +
-                        if (resumeReconDone) ", recon already complete" else "")
+                        if (resumeReconHeaders.isEmpty()) ""
+                        else ", recon done on ${resumeReconHeaders.sorted().joinToString(" ")}")
 
                     // --- the overlap block -------------------------------------------
                     //
@@ -1076,16 +1091,20 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 }
 
                 phase = "recon"
-                // An earlier run that reached the end of recon ruled out every block it did
-                // not find. One that was interrupted ruled out nothing, so it runs again.
-                var reconComplete = resumeReconDone
-                if (resumeReconDone) ble.log("recon already complete on an earlier run; skipping")
-                val reconTotal = liveHeaders.size * 256
+                // Headers an earlier run finished are not walked again. One it was
+                // interrupted partway through ruled nothing out, so it runs in full.
+                val reconDoneHdrs = LinkedHashSet(resumeReconHeaders.filter { it in liveHeaders })
+                val reconTodo = liveHeaders.filter { it !in reconDoneHdrs }
+                if (reconDoneHdrs.isNotEmpty()) {
+                    ble.log("recon already complete on ${reconDoneHdrs.joinToString(" ")}; " +
+                        "${reconTodo.size} header(s) left")
+                }
+                val reconTotal = reconTodo.size * 256
                 // In PROBES, not blocks: recon asks all seven offsets of every block with no
                 // early exit, so this is the real cost and the one the bar must be scaled by.
                 reconTotalP = reconTotal * Discover.OFFSETS.size
                 var reconDone = 0
-                for (h in if (resumeReconDone) emptyList() else liveHeaders) {
+                for (h in reconTodo) {
                     if (stopFlag) break
                     selectHeader(h)                         // once per header
                     // Hinted high-bytes first, then everything else. Same 256 blocks
@@ -1121,13 +1140,17 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                             progress = "recon $h  %02X/FF  —  $blocksFound blocks so far".format(hi)
                         }
                     }
+                    // Only a header walked to the last prefix has ruled anything out. Stop
+                    // partway and it stays on the list, because a half-searched header is
+                    // indistinguishable from one with nothing in the part not reached.
+                    if (!stopFlag) reconDoneHdrs.add(h)
                 }
 
                 // Recon reached the end only if nothing stopped it. A resumed run skips
                 // recon when this was true, and repeats it when it was not -- an interrupted
                 // recon has not ruled anything out.
-                if (!stopFlag) reconComplete = true
-                reconTotalP = if (resumeReconDone) 0 else reconTotalP
+                // Complete when every header that answered has been walked to the end.
+                val reconComplete = liveHeaders.isNotEmpty() && liveHeaders.all { it in reconDoneHdrs }
 
                 // Documented blocks get a FULL sweep even when recon drew a blank in them.
                 // Recon samples seven offsets; a block whose DIDs all sit elsewhere reads as
@@ -1227,7 +1250,10 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     // whose meanings the standard already defines, and the drive logger
                     // read nine of them anyway without anything recording that they exist.
                     out.write("\"mode01\": [${stdPidsIn.joinToString(", ") { "\"$it\"" }}],\n")
+                    // Both: recon_done is the whole-vehicle answer a reader wants, and
+                    // recon_headers is what the next session actually resumes from.
                     out.write("\"recon_done\": $reconComplete,\n")
+                    out.write("\"recon_headers\": [${reconDoneHdrs.joinToString(", ") { "\"$it\"" }}],\n")
                     out.write("\"aborted\": ${if (stopFlag) "true" else "false"},\n")
                     // Schema below matches obd_scan's discover.json so that
                     // `sweep --blocks-from` can read this file unmodified.

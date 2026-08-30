@@ -1458,3 +1458,64 @@ class BlockStateStampTest {
         assertTrue(src("Export.kt").contains("it != \"unspecified\""))
     }
 }
+
+/**
+ * Resumable recon, per header (phase 5).
+ *
+ * Recon is the expensive half and was the only half that could not be picked up: 1,792
+ * probes for one header, ten minutes on an Ioniq 5, and eight live headers is 82 minutes
+ * before a single block gets swept.
+ */
+class ResumableReconTest {
+
+    private val root: java.io.File =
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile }
+    private fun src(n: String) = java.io.File(
+        root, "app/src/main/java/com/redundo/obddiscover/$n").readText()
+
+    /** Headers already walked are not walked again. */
+    @Test fun reconSkipsHeadersAnEarlierRunFinished() {
+        val d = src("Discover.kt")
+        assertTrue("the done set must come from the resume", d.contains("resumeReconHeaders"))
+        assertTrue("and the todo list must exclude it",
+            d.contains("liveHeaders.filter { it !in reconDoneHdrs }"))
+        assertTrue("and recon must iterate the todo list", d.contains("for (h in reconTodo)"))
+    }
+
+    /**
+     * A header is done only when walked to the last prefix. Half-searched is
+     * indistinguishable from empty in the part never reached, so it stays on the list.
+     */
+    @Test fun aHeaderInterruptedPartwayIsNotDone() {
+        val d = src("Discover.kt")
+        val i = d.indexOf("reconDoneHdrs.add(h)")
+        assertTrue("headers must be marked done", i > 0)
+        assertTrue("only when nothing stopped it",
+            d.substring(maxOf(0, i - 80), i).contains("if (!stopFlag)"))
+    }
+
+    /** The estimate has to size only the work actually left, or the bar lies on a resume. */
+    @Test fun theEstimateCountsOnlyTheHeadersLeft() {
+        assertTrue(src("Discover.kt").contains("val reconTotal = reconTodo.size * 256"))
+    }
+
+    /** Whole-vehicle "done" is derived from the headers, not tracked separately. */
+    @Test fun reconIsCompleteOnlyWhenEveryLiveHeaderIs() {
+        assertTrue(src("Discover.kt").contains(
+            "liveHeaders.all { it in reconDoneHdrs }"))
+    }
+
+    /**
+     * A capture from before this field says yes or no for the whole vehicle. Yes meant every
+     * header it targeted, so that is how it is read; no means none, and recon runs again.
+     */
+    @Test fun anOlderCaptureStillResumesCorrectly() {
+        val c = src("Capture.kt")
+        val i = c.indexOf("recon_headers")
+        assertTrue("the per-header list is read", i > 0)
+        val body = c.substring(i, i + 500)
+        assertTrue("falling back to the old flag", body.contains("recon_done"))
+        assertTrue("meaning the headers it targeted", body.contains("headers_targeted"))
+    }
+}

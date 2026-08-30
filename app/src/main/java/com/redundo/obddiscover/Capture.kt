@@ -759,7 +759,7 @@ class CaptureRunner(
                 // that already exist rather than inventing a third.
                 val prior = if (forceDiscover) null else findProgress(vinKey)
                 discover.resumeBlocks = prior?.first ?: emptyList()
-                discover.resumeReconDone = prior?.second ?: false
+                discover.resumeReconHeaders = prior?.second ?: emptySet()
                 status = when {
                     forceDiscover -> "re-mapping this vehicle from scratch..."
                     prior != null -> "continuing the map — " +
@@ -977,7 +977,7 @@ class CaptureRunner(
      * pending when they do not, which is the reading that cannot lose data: a block that
      * really was empty simply gets asked once more.
      */
-    private fun findProgress(key: String): Pair<List<DiscoveredBlock>, Boolean>? {
+    private fun findProgress(key: String): Pair<List<DiscoveredBlock>, Set<String>>? {
         if (key.isEmpty()) return null
         val dir = File(ctx.getExternalFilesDir(null), "logs")
         val files = dir.listFiles { f -> f.name.startsWith("discover-") && f.name.endsWith(".json") }
@@ -1011,7 +1011,19 @@ class CaptureRunner(
                         sweptAt = b.optString("swept_at", "")))
                 }
                 if (out.isEmpty()) continue
-                return out to o.optBoolean("recon_done", false)
+                // Per header where the file says so. A capture from before that field says
+                // only yes or no for the whole vehicle -- read as "all of them" when it
+                // finished, which is what it meant, and none otherwise.
+                val hdrs = LinkedHashSet<String>()
+                o.optJSONArray("recon_headers")?.let { a ->
+                    for (j in 0 until a.length()) hdrs.add(a.optString(j))
+                }
+                if (hdrs.isEmpty() && o.optBoolean("recon_done", false)) {
+                    o.optJSONArray("headers_targeted")?.let { a ->
+                        for (j in 0 until a.length()) hdrs.add(a.optString(j))
+                    }
+                }
+                return out to hdrs
             } catch (_: Exception) { /* unreadable file: try the next */ }
         }
         return null
