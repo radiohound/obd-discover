@@ -351,3 +351,48 @@ class RemapReachableTest {
         assertTrue("and on nothing already running", block.contains("!cap.running"))
     }
 }
+
+/**
+ * The Silverado figures both READMEs quote, pinned to the record they describe.
+ *
+ * They were the only numbers in either file that no test covered, and they were the only
+ * ones that had gone stale: 1,929 was the broadcast header alone rather than the vehicle,
+ * and 40 blocks came from a single capture the record has since grown past. Correcting the
+ * digits without pinning them would have left them free to drift again on the next merge.
+ */
+class SilveradoFiguresTest {
+    private val root: java.io.File =
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile }
+    private val map = org.json.JSONObject(
+        java.io.File(root, "vehicles/Chevrolet/Silverado-HD.map.json").readText())
+
+    private fun readme(n: String) = java.io.File(root, n).readText()
+
+    @Test fun bothReadmesQuoteTheRecordsIdentifierCount() {
+        val n = map.getInt("identifier_count")
+        val text = "%,d".format(n)
+        assertTrue("README must quote $text", readme("README.md").contains(text))
+        assertTrue("vehicles/README must quote $text",
+            readme("vehicles/README.md").contains(text))
+    }
+
+    @Test fun theBlockCountIsTheOneTheRecordHolds() {
+        val ids = map.getJSONObject("identifiers")
+        val blocks = ids.keys().asSequence().flatMap { h ->
+            val a = ids.getJSONArray(h)
+            (0 until a.length()).asSequence().map { a.getString(it).take(4) }
+        }.toSet().size
+        assertTrue("vehicles/README must say $blocks blocks",
+            readme("vehicles/README.md").contains("is $blocks blocks"))
+    }
+
+    /** The old figures must be gone, not merely joined by the new ones. */
+    @Test fun theStaleFiguresAreNotStillThere() {
+        for (n in listOf("README.md", "vehicles/README.md")) {
+            assertTrue("$n still says 1,929", !readme(n).contains("1,929"))
+        }
+        assertTrue("vehicles/README still says 40 blocks",
+            !readme("vehicles/README.md").contains("is 40 blocks"))
+    }
+}

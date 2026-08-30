@@ -62,7 +62,7 @@ a drive. One button:
 With the online lookup on, it also **names the DIDs OBDb documents for that model** —
 fetching that model's signal definitions from OBDb at run time and decoding them, so
 `22005C` on a Silverado reads *"Engine oil temperature: 52 celsius"* rather than `5C`. Only
-a minority: 55 signals against the 1,929 DIDs a sweep of that truck finds. What leaves the
+a minority: 55 signals against the 1,936 DIDs a sweep of that truck finds. What leaves the
 phone is a repository name — no VIN, nothing about the vehicle. The definitions are fetched
 from OBDb rather than bundled, so nothing is redistributed and the file is 19 KB for one
 model instead of ~10 MB for all of them.
