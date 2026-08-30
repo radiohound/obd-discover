@@ -108,7 +108,16 @@ object VehicleId {
 
     /** Known requests for one model, same shape as supportedFor. */
     fun supportedForModel(make: String, model: String): List<Pair<String, String>> {
-        val arr = models?.optJSONObject("$make|$model")?.optJSONArray("k") ?: return emptyList()
+        // CASE-INSENSITIVE, because the two sides spell it differently and always will.
+        // OBDb files the Ioniq 5 as "Hyundai|IONIQ 5"; our own record, written by a person,
+        // says "Ioniq 5". An exact match returned nothing for the one car that most needed
+        // the model-level list -- 34 requests aimed at the battery, charger, motor and
+        // odometer, none of which the make-level list reaches as precisely.
+        val models0 = models ?: return emptyList()
+        val want = "$make|$model".lowercase()
+        val key = models0.keys().asSequence().firstOrNull { it.lowercase() == want }
+            ?: return emptyList()
+        val arr = models0.optJSONObject(key)?.optJSONArray("k") ?: return emptyList()
         val out = ArrayList<Pair<String, String>>()
         for (i in 0 until arr.length()) {
             val row = arr.optString(i); val c = row.indexOf(':')

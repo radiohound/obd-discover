@@ -391,9 +391,20 @@ class CaptureRunner(
             // turns a 24-minute wait for a drive-log plan into a 1.7-minute one on a car this
             // project has mapped before. Neither shortens the sweep that follows -- see
             // VehicleId.contributedRequests: order, never bounds.
+            // THREE SOURCES, MOST SPECIFIC FIRST. contributedRequests is what a real car of
+            // this make and model answered; supportedForModel is what OBDb documents for
+            // this MODEL; supportedFor is what it documents for the make. Measured beats
+            // documented, and model beats make.
+            //
+            // The model tier was shipped and never called. On a 2025 Ioniq 5 it carries 34
+            // requests across twelve headers -- ten at 7E4 where the battery management
+            // lives, five at 7E5 for the charger, and single entries at 7C6 for the odometer
+            // and 7A0, 730, 7D1 -- which are precisely the modules a blind recon spends a
+            // hundred minutes looking for. Twelve seconds of asking, against that.
             val knownReqs = if (mk.isEmpty()) emptyList() else
-                (VehicleId.contributedRequests(mk, modelClean) + VehicleId.supportedFor(mk))
-                    .distinct()
+                (VehicleId.contributedRequests(mk, modelClean) +
+                    VehicleId.supportedForModel(mk, modelClean) +
+                    VehicleId.supportedFor(mk)).distinct()
             hintNote = if (mk.isEmpty()) "" else {
                 val blocks = VehicleId.blockPrefixes(mk, also = sib)
                 val hdrs = VehicleId.headers(mk, also = sib)

@@ -402,3 +402,59 @@ class ShippedIdentifierListTest {
             bytes < 200_000)
     }
 }
+
+/** The two lookups that were shipped and never reached. */
+class KnownRequestReachTest {
+
+    private val root: java.io.File =
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile }
+    private fun asset(n: String) =
+        java.io.File(root, "app/src/main/assets/$n").readText()
+    private fun source(n: String) =
+        java.io.File(root, "app/src/main/java/com/redundo/obddiscover/$n").readText()
+
+    /**
+     * OBDb files it as "IONIQ 5"; a person wrote "Ioniq 5" in the record. An exact match
+     * returns nothing, which is why the model tier reached that car with zero requests
+     * while carrying thirty-four aimed at its battery, charger, motor and odometer.
+     */
+    @Test fun theModelKeysDisagreeOnCaseAndMustStillMatch() {
+        val models = org.json.JSONObject(asset("obdb_models.json"))
+        val ours = org.json.JSONObject(asset("vin_patterns.json")).getJSONObject("locations")
+        val contributed = ours.keys().asSequence().toList()
+        val exact = contributed.filter { models.has(it) }
+        val insensitive = contributed.filter { c ->
+            models.keys().asSequence().any { it.equals(c, ignoreCase = true) }
+        }
+        assertTrue("case-insensitive must reach at least as many models as exact",
+            insensitive.size >= exact.size)
+        assertTrue("the Ioniq 5 is the case this fix exists for",
+            insensitive.any { it.equals("Hyundai|Ioniq 5", ignoreCase = true) })
+        assertTrue("and an exact match must still fail on it, or the fix is untested",
+            !models.has("Hyundai|Ioniq 5"))
+    }
+
+    /** All three tiers have to be offered, or the most specific data goes unused again. */
+    @Test fun allThreeKnownRequestTiersAreConsulted() {
+        val c = source("Capture.kt")
+        for (fn in listOf("contributedRequests", "supportedForModel", "supportedFor")) {
+            assertTrue("Capture must consult $fn", c.contains("VehicleId.$fn("))
+        }
+    }
+
+    /**
+     * Blocks that phase 0 proved are swept BEFORE recon searches for more. Order only --
+     * recon still runs in full and every block is still swept. The point is which twelve
+     * minutes come first when somebody stops early.
+     */
+    @Test fun provedBlocksAreSweptBeforeRecon() {
+        val d = source("Discover.kt")
+        val seeded = d.indexOf("sweep what phase 0 PROVED")
+        val recon = d.indexOf("phase = \"recon\"")
+        assertTrue("the phase-0 sweep must exist", seeded > 0)
+        assertTrue("it must come before recon, not after", seeded < recon)
+        assertTrue("recon must still sweep every block at every offset",
+            d.contains("all seven offsets of every block"))
+    }
+}

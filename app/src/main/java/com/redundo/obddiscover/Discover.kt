@@ -848,7 +848,62 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     }
                 }
                 blocksFound = found.size
-                didsFound = 0     // phase 2 recounts these from the full sweep
+                didsFound = 0     // the sweeps below recount these
+
+                // One block, swept end to end. Used twice: once on what phase 0 already
+                // proved, and once on everything recon turns up afterwards.
+                var swept = 0
+                val swept0 = HashSet<String>()
+                fun sweepOne(b: DiscoveredBlock, denom: () -> Int, exact: Boolean) {
+                    swept0.add(b.name)
+                    selectHeader(b.header)
+                    for (off in 0..255) {
+                        if (stopFlag) return
+                        val req = "%04X%02X".format(b.prefix, off)
+                        val (present, payload, _) = ask(req)
+                        probes++; probesSweep++
+                        if (present && payload != null) {
+                            b.fullHits.add(req to payload)
+                            didsFound++                     // total, not per-block
+                        }
+                        if (off % 16 == 0) {
+                            // Only once recon has ended is the block count final; before
+                            // that the prior stands, or the bar would size the whole run
+                            // from the handful of blocks phase 0 happened to seed.
+                            if (exact) estBlocks = found.size
+                            overall(probesKnown + probesRecon + probesSweep)
+                            progress = "sweep ${b.name} (${swept + 1}/${denom()})  " +
+                                "%02X/FF  —  $didsFound DIDs found".format(off)
+                        }
+                    }
+                    swept++
+                }
+
+                // --- phase 1: sweep what phase 0 PROVED, before recon looks for more ---
+                //
+                // ORDER, NOT SCOPE. Every block here still gets swept; recon still runs in
+                // full afterwards. What changes is which twelve minutes come first.
+                //
+                // Recon is 1,792 probes per live header -- on a 2025 Ioniq 5 with ten live
+                // headers that is about a hundred minutes at the rate that car achieves,
+                // spent looking for blocks nobody has documented. Phase 0 has by this point
+                // already landed hits in the blocks somebody HAS documented, and under the
+                // old order those sat unswept behind the entire search. An operator who
+                // stopped at twenty minutes kept nothing but a list of block names.
+                //
+                // Swept first, the documented modules -- battery, charger, motor, odometer
+                // -- are complete in about a quarter of an hour, and the open-ended search
+                // is what gets deferred. That is the half worth deferring: it is the half
+                // with no known payoff.
+                val seeded = found.values.toList()
+                if (seeded.isNotEmpty()) {
+                    phase = "sweep"
+                    ble.log("sweeping ${seeded.size} block(s) proved by phase 0, before recon")
+                    for (b in seeded) {
+                        if (stopFlag) break
+                        sweepOne(b, { seeded.size }, exact = false)
+                    }
+                }
 
                 phase = "recon"
                 val reconTotal = liveHeaders.size * 256
@@ -909,32 +964,13 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 }
                 blocksFound = found.size
 
-                // --- phase 2: full sweep of what recon found ------------------------
+                // --- phase 2: sweep everything recon added -------------------------
+                // Blocks phase 1 already swept are skipped by name, never re-asked.
                 phase = "sweep"
-                var swept = 0
-                val swept0 = HashSet<String>()
-                for (b in found.values) {
+                for (b in found.values.toList()) {
                     if (stopFlag) break
-                    swept0.add(b.name)
-                    selectHeader(b.header)
-                    for (off in 0..255) {
-                        if (stopFlag) break
-                        val req = "%04X%02X".format(b.prefix, off)
-                        val (present, payload, _) = ask(req)
-                        probes++; probesSweep++
-                        if (present && payload != null) {
-                            b.fullHits.add(req to payload)
-                            didsFound++                     // total, not per-block
-                        }
-                        if (off % 16 == 0) {
-                            // Exact from here: recon is done, so the block count is final.
-                            estBlocks = found.size
-                            overall(probesKnown + probesRecon + probesSweep)
-                            progress = "sweep ${b.name} (${swept + 1}/${found.size})  " +
-                                "%02X/FF  —  $didsFound DIDs found".format(off)
-                        }
-                    }
-                    swept++
+                    if (b.name in swept0) continue
+                    sweepOne(b, { found.size }, exact = true)
                 }
 
                 // Stamped once, before writing, so the filename and finished_at agree
