@@ -28,6 +28,14 @@
   ],
   "identifier_count": 53,
   "map": "Ioniq-5.map.json",
+  "pids": {
+    "0101": "monitor status since DTCs cleared",
+    "0121": "distance travelled with MIL on (km)",
+    "0130": "warm-ups since codes cleared",
+    "0131": "distance since codes cleared (km)",
+    "015B": "hybrid battery pack remaining life (%)",
+    "019A": "hybrid/EV vehicle system data, battery, voltage"
+  },
   "stats": {
     "probes": 5390,
     "blocks": 7

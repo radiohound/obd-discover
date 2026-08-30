@@ -623,9 +623,20 @@ class RecordRichnessTest {
         var seen = 0
         for ((f, r) in records()) {
             val pids = r.optJSONObject("pids") ?: continue
+            val std = org.json.JSONObject(
+                java.io.File("src/main/assets/pid_standard.json").readText())
+                .getJSONObject("mode01")
             for (k in pids.keys()) {
-                assertTrue("${f.name}: $k has no name", pids.getString(k).isNotEmpty())
-                seen++
+                // A car can report a PID the bundled table does not cover -- an F-150
+                // reports 01AA, 01AD, 01AF and 01B0, which I could not name with
+                // confidence. Blank is the honest answer there; what must never happen is
+                // a blank where the table HAS a name, which would mean the naming pass
+                // failed rather than the standard being incomplete.
+                val named = pids.getString(k).isNotEmpty()
+                if (std.has(k.substring(2))) {
+                    assertTrue("${f.name}: $k is in the standard table but unnamed", named)
+                    seen++
+                }
             }
         }
         assertTrue("expected named PIDs in the database", seen > 100)
