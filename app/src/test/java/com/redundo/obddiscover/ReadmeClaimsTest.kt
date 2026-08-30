@@ -100,6 +100,12 @@ class ReadmeClaimsTest {
         // it sustained 18,768 round trips without a retry is the claim being made.
         assertEquals("an adapter may only be marked verified if someone ran it", 2,
             Regex("Verified on this app").findAll(readme).count())
+        // The count above rose to 2 and the opening still said "the only adapter this app
+        // has been tested on" -- the hardware section and the first paragraph disagreeing
+        // about the same fact, which is the half of a README people actually read being
+        // the half that was wrong. Guarded so the two cannot drift apart again.
+        assertTrue("the opening must not claim a single tested adapter once there are two",
+            !opening.contains("only adapter"))
     }
 
     @Test fun nineGenericAnchors() {
