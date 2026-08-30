@@ -1780,7 +1780,7 @@ class ResumeBeatsAStaleCacheTest {
 
     /** Finished uses the same rule the sweeps use: swept, and either answered or twice empty. */
     @Test fun theFinishedTestMatchesTheOneTheSweepsUse() {
-        val i = src.indexOf("val unfinished = prior?.first?.any")
+        val i = src.indexOf("val blocksLeft = prior?.first?.any")
         assertTrue("the test must exist", i > 0)
         val body = src.substring(i, i + 220)
         assertTrue("swept", body.contains("it.swept"))
@@ -1820,5 +1820,31 @@ class ResumedRunReportsWhatItHasTest {
         val seeded = src.indexOf("didsFound = found.values")
         val skip = src.indexOf("filterNot { finished(it) }")
         assertTrue("the sweeps must skip finished blocks", skip > seeded)
+    }
+}
+
+/**
+ * A map is not finished merely because its blocks are.
+ *
+ * An Ioniq 5 has eleven blocks all holding hits and not one capture recording that recon
+ * reached the end, because every one of them predates the field. Blocks alone said finished,
+ * so the vehicle that most needs mapping would have skipped it and driven off.
+ */
+class ReconCompletionCountsTest {
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+
+    @Test fun unknownReconCountsAsUnfinished() {
+        assertTrue("recon completion must be tested",
+            src.contains("val reconUnknown = prior != null && prior.second.isEmpty()"))
+        assertTrue("and must feed the decision",
+            src.contains("val unfinished = blocksLeft || reconUnknown"))
+    }
+
+    /** A vehicle with no captures at all is not "unfinished" -- it is simply new. */
+    @Test fun aVehicleWithNoHistoryIsNotUnfinished() {
+        assertTrue("guarded on prior being present", src.contains("prior != null && prior.second.isEmpty()"))
     }
 }

@@ -836,9 +836,21 @@ class CaptureRunner(
             // Pick up where an earlier run stopped, unless the operator asked for a clean
             // map. Re-map means start over; CAPTURE means continue (D7).
             val prior = if (forceDiscover) null else findProgress(vinKey)
-            val unfinished = prior?.first?.any {
+            // A map is finished when every block is done AND recon is known to have reached
+            // the end. Blocks alone are not enough: an Ioniq 5 has eleven blocks all holding
+            // hits and no capture that records recon completing, because every one of them
+            // predates the field. Unknown was being read as done, so the vehicle that most
+            // needs mapping would have skipped it.
+            //
+            // Every map made before today was made by a parser that dropped multi-frame
+            // replies, so re-running recon on those vehicles is not waste -- it is how the
+            // wide identifiers get found at all. Once a run records its headers, this stops
+            // firing for that vehicle.
+            val blocksLeft = prior?.first?.any {
                 !(it.swept && (it.fullHits.isNotEmpty() || it.emptyRuns >= 2))
             } ?: false
+            val reconUnknown = prior != null && prior.second.isEmpty()
+            val unfinished = blocksLeft || reconUnknown
             val cached = if (forceDiscover || unfinished) null else findCached(vinKey)
             if (cached != null) {
                 val (file, plan, skipped) = cached
