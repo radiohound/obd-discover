@@ -318,6 +318,27 @@ class CaptureRunner(
                 }
                 ble.cmd("ATSH$vinBroadcast")
             }
+
+            // 22F190 AGAIN, ON THE BROADCAST. It is asked above, but only at the physical
+            // header -- and a battery electric car has no engine ECU, so 7E0 is not there to
+            // answer anything. A 2025 Ioniq 5 answers 22F190 at 7DF, and that is the VIN
+            // that decides whether the run gets its make's hints at all: without it the scan
+            // reached 2 of the 11 headers Hyundai documents, missing 7E4 where the battery
+            // management lives. Not guarded on `ok`, because the question is whether a VIN
+            // was read, not whether some earlier request came back.
+            //
+            // THIS COULD NOT HAVE WORKED UNTIL MULTI-FRAME REASSEMBLY LANDED. 22F190 returns
+            // the VIN as seventeen ASCII bytes, thirteen more than a single Mode-22 frame
+            // carries, so the request returned null on every vehicle ever scanned. The
+            // fallback was already written and was dead code the whole time -- the bug hid
+            // its own workaround, and we diagnosed this car twice without seeing that.
+            if (Discover.vinFrom(raw).isEmpty()) {
+                val onBroadcast = ble.cmd("22F190", 6_000)
+                ble.log("VIN 22F190 @$vinBroadcast -> ${describe(onBroadcast, redact = true)}")
+                if (Discover.vinFrom(onBroadcast.first).isNotEmpty()) {
+                    raw = onBroadcast.first; ok = true
+                }
+            }
             coverage = ""
             vin = if (ok) Discover.vinFrom(raw) else ""
             if (vin.isEmpty()) ble.log("VIN: no 17-char VIN parsed from either header")

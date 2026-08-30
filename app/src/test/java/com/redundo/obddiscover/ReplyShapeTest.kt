@@ -153,6 +153,23 @@ class ReplyShapeTest {
         assertNull(Obd.payloadOf("22F478", raw))
     }
 
+    /**
+     * The Ioniq 5's real reply, from its capture of 2026-08-30. Seventeen ASCII bytes, so
+     * it needs two frames -- which is why this fallback existed in the source for days and
+     * returned null every time it was called.
+     */
+    @Test fun theVinReadsFrom22F190() {
+        val raw = "014\r0:62F190375941\r1:4B4D3444425853\r2:59303430333930\r>"
+        assertEquals("7YAKM4DBXSY040390", Discover.vinFrom(raw))
+    }
+
+    /** And the same reply is what a single-frame parser saw: nothing at all. */
+    @Test fun theOldParserSawNoVinThere() {
+        val raw = "014\r0:62F190375941\r1:4B4D3444425853\r2:59303430333930\r>"
+        assertNull(raw.split('\r').map { it.trim() }
+            .firstOrNull { it.startsWith("62F190") })
+    }
+
     // --- run timing and sizing (#7, #10) -------------------------------------------
 
     /**
