@@ -237,9 +237,9 @@ says so at the top, in those words. Use the scrubbed export for anything you pos
 
 ### The adapter
 
-**Exactly one adapter has ever been tested successfully with this app: the Vgate iCar Pro
-BLE 4.0.** Everything else in the table below is reasoning, not experience — a ✅ means
-somebody ran it, a 🟡 means nobody has. At least one other BLE adapter was tried and could
+**Two adapters have been tested successfully with this app: the Vgate iCar Pro BLE 4.0 and
+the Vgate vLinker MS in BLE mode.** Everything else in the table below is reasoning, not
+experience — a ✅ means somebody ran it, a 🟡 means nobody has. At least one other BLE adapter was tried and could
 never be made to work, with this app or with obd-gauge-cluster on a laptop, so "it is BLE"
 is not by itself a guarantee.
 
@@ -250,7 +250,7 @@ configuration problem, a different radio protocol.
 | Adapter | Status |
 | :-- | :-- |
 | **Vgate iCar Pro BLE 4.0** | ✅ **Verified on this app.** Works out of the box, no configuration. Get this one if you are buying. |
-| Vgate vLinker MS | 🟡 Validated by [obd-gauge-cluster](https://github.com/cheeseprince/obd-gauge-cluster), not bench-tested here. Ships in Classic/MFi mode and has to be switched to BLE first. |
+| **Vgate vLinker MS** | ✅ **Verified on this app.** 18,768 probes on a GM Global B truck, 0 timeouts and 0 retries. ⚠️ Ships in Classic/MFi mode and **must be switched to BT+BLE once** with the Vgate app before it will advertise at all. |
 | Generic CC2541 clones (`FFE0` / `FFF0`) | 🟡 Untested. The profiles are implemented, so they *should* work — but that is inference, and one BLE adapter has already disproved it. |
 | Bluetooth Classic / SPP adapters | ❌ Cannot work. Wrong radio protocol. |
 | Wi-Fi adapters (most ELM327 clones) | ❌ Cannot work. This app has no Wi-Fi transport. |
