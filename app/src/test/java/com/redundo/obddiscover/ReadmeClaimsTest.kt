@@ -89,9 +89,16 @@ class ReadmeClaimsTest {
             opening.contains("Bluetooth Low Energy") || opening.contains("BLE"))
         assertTrue("the opening must name the verified adapter",
             opening.contains("Vgate iCar Pro BLE 4.0"))
-        // Only one adapter has actually been run against this app. If a second is ever
-        // marked verified here, it should be because someone ran it.
-        assertEquals("exactly one adapter may be marked verified", 1,
+        // An adapter may only be marked verified because someone RAN it. The count is
+        // pinned so that adding a row is a deliberate act with evidence attached, not a
+        // hopeful edit -- which is exactly what this guard caught when the second one
+        // was added.
+        //
+        // 2 since 2026-08-30: the Vgate vLinker MS, in BLE mode, on a 2025 GMC Sierra
+        // 3.0L Duramax (GM Global B). 18,768 probes, 38 blocks, 5 headers speaking
+        // Mode-22, 0 timeouts and 0 retries. That it connects would not be enough; that
+        // it sustained 18,768 round trips without a retry is the claim being made.
+        assertEquals("an adapter may only be marked verified if someone ran it", 2,
             Regex("Verified on this app").findAll(readme).count())
     }
 
