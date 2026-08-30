@@ -373,6 +373,17 @@ data class DiscoveredBlock(
      * believed. One run cannot decide this, because one run is exactly what an outage is.
      */
     var emptyRuns: Int = 0,
+    /**
+     * The vehicle state this block was swept in, and when.
+     *
+     * A map built across several sessions is a blend, and without this nobody can unpick it.
+     * A block swept at a cold soak and a block swept at warm idle are answers to different
+     * questions, and merging them silently produces a record that is true of no vehicle in
+     * any single state. Recorded per block rather than per capture, because in a resumed map
+     * the capture-level label only describes the session that happened to finish it.
+     */
+    var state: String = "",
+    var sweptAt: String = "",
 )
 
 class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
@@ -901,9 +912,13 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                         val lost = before - now
                         val gained = now - before
                         if (!stopFlag && (lost.isNotEmpty() || gained.isNotEmpty())) {
+                            // Naming both states turns "something changed" into something the
+                            // operator can act on -- most of the time they will recognise the
+                            // difference and either fix it or accept it deliberately.
+                            val was = overlap.state.ifEmpty { "an unrecorded state" }
                             warning = "${overlap.name} answered differently than last session " +
-                                "(${lost.size} gone, ${gained.size} new) — the car may not be " +
-                                "in the same state"
+                                "(${lost.size} gone, ${gained.size} new) — last swept in " +
+                                "\"$was\", now \"${Session.captureState}\""
                             ble.log("WARNING: $warning")
                         } else if (!stopFlag) {
                             ble.log("overlap ${overlap.name}: ${now.size} identifiers, " +
@@ -995,6 +1010,8 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     // block being swept when the operator hit stop would be recorded as a
                     // fact about the vehicle.
                     b.swept = true
+                    b.state = Session.captureState
+                    b.sweptAt = Obd.isoUtc(System.currentTimeMillis())
                     if (b.fullHits.size == hitsBefore) {
                         b.emptyRuns++
                         emptyRun++
@@ -1229,6 +1246,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                         // what lets the next run pick up honestly instead of starting over.
                         "  {\"name\": \"${b.name}\", \"header\": \"${b.header}\", " +
                             "\"swept\": ${b.swept}, \"empty_runs\": ${b.emptyRuns}, " +
+                            "\"state\": \"${b.state}\", \"swept_at\": \"${b.sweptAt}\", " +
                             "\"recon_hits\": [$recon], \"full_hits\": [$full]}"
                     })
                     out.write("\n]\n}\n")

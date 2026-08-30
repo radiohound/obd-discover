@@ -1396,9 +1396,65 @@ class OutageGuardTest {
     @Test fun theOverlapKeepsTheUnionAndOnlyWarns() {
         val i = src.indexOf("val lost = before - now")
         assertTrue("the comparison must exist", i > 0)
-        val body = src.substring(maxOf(0, i - 900), i + 400)
+        val body = src.substring(maxOf(0, i - 900), minOf(src.length, i + 1200))
         assertTrue("new identifiers are kept", body.contains("overlap.fullHits.add"))
         assertTrue("a disagreement warns", body.contains("answered differently"))
-        assertTrue("nothing is removed", !body.contains("fullHits.remove"))
+        assertTrue("nothing is removed anywhere", !src.contains("fullHits.remove"))
+    }
+}
+
+/**
+ * Per-block state provenance (phase 4).
+ *
+ * A map assembled over several sessions is a blend. Without a stamp on each block nobody can
+ * unpick which identifiers were answers to which question -- and "does this only answer when
+ * moving" is the first thing anyone asks of an identifier that comes and goes.
+ */
+class BlockStateStampTest {
+
+    private val root: java.io.File =
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile }
+    private fun src(n: String) = java.io.File(
+        root, "app/src/main/java/com/redundo/obddiscover/$n").readText()
+
+    /** The stamp goes on when the block finishes, beside the swept flag it qualifies. */
+    @Test fun aBlockIsStampedWhenItIsSwept() {
+        val d = src("Discover.kt")
+        val i = d.indexOf("b.swept = true")
+        assertTrue("blocks must be marked swept", i > 0)
+        val after = d.substring(i, i + 200)
+        assertTrue("with the vehicle state", after.contains("Session.captureState"))
+        assertTrue("and a timestamp", after.contains("isoUtc"))
+    }
+
+    /** In the same UTC format as everything else, or nothing sorts together. */
+    @Test fun theStampUsesTheOneClockFormat() {
+        assertEquals("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Obd.ISO_UTC)
+        assertTrue(src("Discover.kt").contains("b.sweptAt = Obd.isoUtc"))
+    }
+
+    /** It has to survive into the capture file and back out again, or resuming loses it. */
+    @Test fun theStampRoundTripsThroughTheCaptureFile() {
+        assertTrue("written", src("Discover.kt").contains("\\\"swept_at\\\""))
+        assertTrue("and read back", src("Capture.kt").contains("b.optString(\"swept_at\""))
+    }
+
+    /**
+     * The overlap warning names both states. "Something changed" is not actionable; "last
+     * swept at warm idle, now key on engine off" is something the operator recognises.
+     */
+    @Test fun theOverlapWarningNamesBothStates() {
+        val d = src("Discover.kt")
+        val i = d.indexOf("answered differently than last session")
+        assertTrue("the disagreement warning must exist", i > 0)
+        val body = d.substring(i - 300, i + 300)
+        assertTrue("the old state", body.contains("overlap.state"))
+        assertTrue("and the current one", body.contains("Session.captureState"))
+    }
+
+    /** "unspecified" is the default nobody chose, and carries no information. */
+    @Test fun theDefaultStateIsNotWrittenIntoARecord() {
+        assertTrue(src("Export.kt").contains("it != \"unspecified\""))
     }
 }

@@ -1006,7 +1006,9 @@ class CaptureRunner(
                     out.add(DiscoveredBlock(
                         name, prefix, b.optString("header"), recon, hits,
                         swept = b.optBoolean("swept", hits.isNotEmpty()),
-                        emptyRuns = b.optInt("empty_runs", 0)))
+                        emptyRuns = b.optInt("empty_runs", 0),
+                        state = b.optString("state", ""),
+                        sweptAt = b.optString("swept_at", "")))
                 }
                 if (out.isEmpty()) continue
                 return out to o.optBoolean("recon_done", false)

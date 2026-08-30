@@ -496,8 +496,16 @@ object Export {
                         }
                     }
                 }
+                // The state travels with the block, not just with the capture. A record
+                // merged from several sessions is otherwise a blend nobody can unpick, and
+                // "which state was this measured in" is the first question anybody asks of
+                // an identifier that only sometimes answers.
                 if (ids.isNotEmpty()) clean.put(JSONObject()
                     .put("block", e.optString("name")).put("header", e.optString("header"))
+                    .apply {
+                        e.optString("state").takeIf { it.isNotEmpty() && it != "unspecified" }
+                            ?.let { put("state", it) }
+                    }
                     .put("identifiers", JSONArray(ids.toList())))
             }
             if (clean.length() > 0) out.put("detail", clean)

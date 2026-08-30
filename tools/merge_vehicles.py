@@ -130,6 +130,22 @@ def main(out_path):
                              (("n", sg.get("name")), ("u", sg.get("unit")),
                               ("h", sg.get("header")), ("c", sg.get("confidence"))) if v}
 
+    # A record whose blocks were measured in different states is a legitimate thing to
+    # contribute -- a map assembled over several drives is the point of resumable mapping --
+    # but it is not the same artefact as one taken in a single sitting, and the difference
+    # has to be visible to whoever reads it. Reported, never refused.
+    for p in sorted(files):
+        try:
+            r = json.load(open(p))
+        except Exception:
+            continue
+        states = {b.get("state") for b in (r.get("detail") or [])
+                  if isinstance(b, dict) and b.get("state")}
+        if len(states) > 1:
+            print(f"vehicles: {os.path.relpath(p, ROOT)}: assembled across "
+                  f"{len(states)} vehicle states ({', '.join(sorted(states))}); "
+                  f"identifiers in it are not all answers to the same question")
+
     if errors:
         print(f"vehicles: {errors} problem(s); refusing to write {out_path}", file=sys.stderr)
         return 1
