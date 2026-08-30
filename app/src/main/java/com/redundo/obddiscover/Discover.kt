@@ -760,6 +760,18 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
     var knownRequests: List<Pair<String, String>> = emptyList()
 
     /**
+     * Where the known requests came from, written into the capture.
+     *
+     * The confirm pass has now silently done nothing on two separate runs and both diagnoses
+     * from reading the source were wrong. A count that says only "30 offered" cannot
+     * distinguish an empty measured record from a model name that did not match from an
+     * asset that never loaded -- so the file records the model it looked up and what each
+     * tier returned, and the next run diagnoses itself instead of costing a drive.
+     */
+    var knownModel: String = ""
+    var knownTiers: Triple<Int, Int, Int> = Triple(0, 0, 0)
+
+    /**
      * The make the hint tables resolved to, or "" if none did.
      *
      * Recorded because `preset` was a hardcoded literal `"generic"` and an outside reader
@@ -1265,6 +1277,9 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     out.write("\"headers_added\": [${hintedHeaders.filter { it !in Discover.HEADERS_11BIT }.joinToString(", ") { "\"$it\"" }}], ")
                     out.write("\"blocks_hinted\": ${hintedBlocks.size}, ")
                     out.write("\"headers_excluded\": [${excludedHeaders.sorted().joinToString(", ") { "\"$it\"" }}], ")
+                    out.write("\"model_looked_up\": \"$knownModel\", ")
+                    out.write("\"tiers\": {\"ours\": ${knownTiers.first}, " +
+                        "\"obdb_model\": ${knownTiers.second}, \"obdb_make\": ${knownTiers.third}}, ")
                     out.write("\"known_requests_offered\": ${knownRequests.size}, ")
                     out.write("\"known_requests_sent\": $probesKnown},\n")
                     out.write("\"probe_breakdown\": {\"known\": $probesKnown, ")

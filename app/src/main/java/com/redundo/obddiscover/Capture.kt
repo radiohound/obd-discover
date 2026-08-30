@@ -494,10 +494,12 @@ class CaptureRunner(
             // lives, five at 7E5 for the charger, and single entries at 7C6 for the odometer
             // and 7A0, 730, 7D1 -- which are precisely the modules a blind recon spends a
             // hundred minutes looking for. Twelve seconds of asking, against that.
-            val knownReqs = if (mk.isEmpty()) emptyList() else
-                (VehicleId.contributedRequests(mk, modelClean) +
-                    VehicleId.supportedForModel(mk, modelClean) +
-                    VehicleId.supportedFor(mk)).distinct()
+            val tierOurs = if (mk.isEmpty()) emptyList() else VehicleId.contributedRequests(mk, modelClean)
+            val tierModel = if (mk.isEmpty()) emptyList() else VehicleId.supportedForModel(mk, modelClean)
+            val tierMake = if (mk.isEmpty()) emptyList() else VehicleId.supportedFor(mk)
+            val knownReqs = (tierOurs + tierModel + tierMake).distinct()
+            ble.log("known requests: ours=${tierOurs.size} model=${tierModel.size} " +
+                "make=${tierMake.size} for \"$mk\" / \"$modelClean\"")
             hintNote = if (mk.isEmpty()) "" else {
                 val blocks = VehicleId.blockPrefixes(mk, also = sib)
                 val hdrs = VehicleId.headers(mk, also = sib)
@@ -929,6 +931,8 @@ class CaptureRunner(
                 // in full -- so the whole-block coverage arrives anyway, for the blocks that
                 // actually answer.
                 discover.knownRequests = knownReqs
+                discover.knownModel = modelClean
+                discover.knownTiers = Triple(tierOurs.size, tierModel.size, tierMake.size)
                 discover.hintMake = mk
 
                 // Block-level fallback, only where there is no census to ask from. 16 makes
