@@ -718,11 +718,6 @@ class CaptureRunner(
                     vinKey.isEmpty() -> "VIN unreadable — mapping from scratch to be safe"
                     else -> "new vehicle${if (wmi.isNotEmpty()) " ($wmi)" else ""} — mapping its blocks"
                 }
-                // Was a hardcoded "about 10 minutes" on runs measured at 19.5 -- roughly
-                // half the truth, and shown beside a percentage that reset each phase. The
-                // runner now estimates from its own probe rate; this line only has to be
-                // true before there is anything to measure.
-                detail = "stay parked, engine warm — this usually takes 15–20 minutes"
                 phase = CapPhase.DISCOVER
 
                 discover.hintedBlocks = if (mk.isEmpty()) emptyList() else VehicleId.blockPrefixes(mk, also = sib)
@@ -732,6 +727,33 @@ class CaptureRunner(
                     VehicleId.unaddressable(mk, sib).any { it.first == "6F1" }
                 discover.wmiIn = wmi
                 discover.vinKeyIn = vinKey
+
+                // THE ONE FIGURE THAT WAS STILL A CONSTANT: this line said "15-20 minutes"
+                // to every vehicle alike, and a GM Global B truck was told that for a run
+                // whose arithmetic floor was 26 (#7). Everything AFTER the first probes is
+                // already honest -- overall() sizes the job from the header count and the
+                // block count and re-derives the ETA from the run's own measured rate.
+                //
+                // WHAT IT IS NOT REPLACED WITH IS A DERIVED NUMBER. The dominant unknown is
+                // how many modules answer, and that is precisely what recon is about to find
+                // out: Hyundai hints twelve headers and two answer, Ford eleven and four.
+                // Sizing from the headers we intend to TRY predicts 4.9x the real run on an
+                // Ioniq and 2.2x on a Ranger -- the same defect as the old constant, pointing
+                // the other way, and an estimate wrong by 2x is one people stop reading.
+                //
+                // So: the span across the vehicles actually run, and the reason it varies.
+                // A real figure follows within seconds of probing starting, which is the
+                // first moment one exists.
+                //
+                // THIS RANGE IS PROVISIONAL AND SHOULD BE REGENERATED. No run of this app
+                // has ever been timed -- the capture file had no clock until now -- so 8-26
+                // is probe counts divided by ~12 probes/s, and that rate was measured by
+                // obd-gauge-cluster on its hardware, not by us on ours. It reads like
+                // experience and is arithmetic on a borrowed constant. Once a handful of
+                // captures carry elapsed_s, compute the real rate and the real span from
+                // them and replace this.
+                detail = "stay parked, engine warm — 8 to 26 min, depending on how many " +
+                    "modules answer; the estimate appears once probing starts"
 
                 // Exact DIDs known to answer on this make, asked by name in phase 0. This is
                 // the cheap, precise mechanism: on a Ford Ranger it reaches the six

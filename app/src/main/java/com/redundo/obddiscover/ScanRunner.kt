@@ -230,6 +230,21 @@ object Obd {
     }
 
     fun hex(b: ByteArray): String = b.joinToString("") { "%02X".format(it.toInt() and 0xFF) }
+
+    /**
+     * The one timestamp format this project writes, UTC.
+     *
+     * Shared so a stage result and the drive log that followed it sort together with no
+     * conversion -- the CSV has stamped every row with this since the beginning, and the
+     * file saying what the vehicle IS had no clock at all. obd_scan reached the same
+     * conclusion and the same format independently (cheeseprince/obd-gauge-cluster#105).
+     */
+    const val ISO_UTC = "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"
+
+    fun isoFormat(): SimpleDateFormat =
+        SimpleDateFormat(ISO_UTC, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+
+    fun isoUtc(ms: Long): String = isoFormat().format(Date(ms))
 }
 
 /** One DID to poll, and the CAN header to ask it under. */
@@ -392,8 +407,7 @@ class ScanRunner(private val ctx: Context, private val ble: ElmBle) {
                     lastError = "columns differ from the previous log — started a new file"
                 }
 
-                val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US)
-                    .apply { timeZone = TimeZone.getTimeZone("UTC") }
+                val iso = Obd.isoFormat()      // one format, shared with the capture file
 
                 java.io.BufferedWriter(java.io.FileWriter(f, appending)).use { out ->
                     if (!appending) {

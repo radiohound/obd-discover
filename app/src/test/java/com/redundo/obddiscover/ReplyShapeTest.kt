@@ -153,6 +153,34 @@ class ReplyShapeTest {
         assertNull(Obd.payloadOf("22F478", raw))
     }
 
+    // --- run timing and sizing (#7, #10) -------------------------------------------
+
+    /**
+     * One timestamp format, shared with the drive CSV so a capture and the drive that
+     * followed it sort together with no conversion. UTC, because a capture that moves
+     * between machines must not reorder itself.
+     */
+    @Test fun theCaptureClockMatchesTheDriveClock() {
+        assertEquals("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Obd.ISO_UTC)
+        assertEquals("2026-08-29T00:00:00.000Z", Obd.isoUtc(1787961600000L))
+    }
+
+    /**
+     * The block prior sizes the sweep before recon has counted anything, and 20 was
+     * calibrated on 9-to-17-block vehicles. A GM truck answers with 38 and our own
+     * Silverado with 40, so on those the sweep was sized at half the truth for the whole
+     * of recon. The hint table already knows GM runs large; use it.
+     */
+    @Test fun theBlockPriorTakesTheHintWhenTheHintIsLarger() {
+        assertEquals(32, Discover.blockPrior(32))     // GM: measured 38-40
+        assertEquals(20, Discover.blockPrior(7))      // Subaru: measured 9, floor still applies
+    }
+
+    /** Never below the floor, or a small-hint make would size its sweep at nearly nothing. */
+    @Test fun theBlockPriorNeverGoesBelowTheFloor() {
+        assertEquals(Discover.BLOCK_PRIOR, Discover.blockPrior(0))
+    }
+
     // --- Mode09 support bitmap -----------------------------------------------------
 
     /**

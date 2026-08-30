@@ -76,12 +76,31 @@ object Discover {
     val OFFSETS = listOf(0x00, 0x01, 0x02, 0x03, 0x40, 0x80, 0xC0)
 
     /**
-     * Assumed block count before recon finishes, for sizing the progress bar only.
+     * Floor for the assumed block count before recon finishes, for sizing the estimate.
      *
      * Measured: 9 on a Subaru, 15 on a Ford, 16-17 on a BMW. Set above all of them so the
      * estimate rarely has to grow mid-run, which is the direction that makes a bar reverse.
+     *
+     * IT WAS CALIBRATED ON THE WRONG CARS. A GM Global B truck answers with 38 blocks and
+     * our own Silverado with 40 -- double this. On that truck the sweep was sized at
+     * 20 x 256 = 5,120 probes when the truth was 9,728, so the estimate ran about a quarter
+     * low for the whole of recon and then jumped a third when recon ended and the real count
+     * landed. That is the underestimate reported in #7: the count DOES enter the arithmetic,
+     * but until recon finishes it enters as this constant.
      */
     const val BLOCK_PRIOR = 20
+
+
+    /**
+     * The block count to size the sweep with before recon has counted them.
+     *
+     * The hint table already knows roughly how many blocks a make has -- 32 for GM against
+     * a measured 38-40, 7 for Subaru against 9 -- and that is strictly better information
+     * than one constant for every vehicle. Taking the larger of the two keeps the existing
+     * bias: over-estimating means the denominator DROPS when recon ends and the bar jumps
+     * forward, which is the direction that does not feel broken.
+     */
+    fun blockPrior(hintedBlocks: Int): Int = maxOf(BLOCK_PRIOR, hintedBlocks)
 
     /**
      * BMW extended addressing. Written "6F1@12": tester 6F1, target byte 12, RX filter 612.
@@ -383,6 +402,19 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
     private var etaSecs = 0.0
 
     /**
+     * The FIRST estimate this run committed to, kept so the file can grade it.
+     *
+     * An estimate that only ever appears on screen is never checked against anything: the
+     * run ends, the number is gone, and the next argument about whether it was any good is
+     * settled by recollection. Written beside elapsed_s, so every capture carries its own
+     * prediction and its own outcome and nobody has to remember either (#7, #10).
+     *
+     * The first one rather than the last, because the last is near zero by construction and
+     * grades nothing. This is the number a person actually plans around.
+     */
+    private var etaFirstSecs = 0.0
+
+    /**
      * Sweep cost cannot be known until recon ends, so until then it is a PRIOR, not an
      * extrapolation.
      *
@@ -421,6 +453,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
         // it is the mistake the progress bar already made once.
         etaSecs = if (etaSecs <= 0.0) estimate
                   else etaSecs * (1 - Discover.ETA_SMOOTH) + estimate * Discover.ETA_SMOOTH
+        if (etaFirstSecs <= 0.0) etaFirstSecs = etaSecs
         val left = etaSecs.toLong()
         eta = when {
             left <= 0 -> ""
@@ -651,7 +684,8 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
         nrcByHeader.clear(); refusals.clear(); timeouts = 0; retries = 0; consecutiveDead = 0; curHeader = ""
         stopping = false; aborted = false; matchedModels = emptyList(); allHits = emptyList()
         runStartMs = System.currentTimeMillis()
-        knownTotal = 0; reconTotalP = 0; estBlocks = Discover.BLOCK_PRIOR; pctFloor = 0; etaSecs = 0.0
+        knownTotal = 0; reconTotalP = 0; pctFloor = 0; etaSecs = 0.0; etaFirstSecs = 0.0
+        estBlocks = Discover.blockPrior(hintedBlocks.size)
 
         ble.runOnWorker {
             var f: File? = null
@@ -844,7 +878,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                             // from, so the prior stands.
                             // No extrapolation -- see overall(). The prior stands until
                             // recon ends and the real count is known.
-                            estBlocks = maxOf(Discover.BLOCK_PRIOR, blocksFound)
+                            estBlocks = maxOf(Discover.blockPrior(hintedBlocks.size), blocksFound)
                             overall(probesKnown + probesRecon)
                             progress = "recon $h  %02X/FF  —  $blocksFound blocks so far".format(hi)
                         }
@@ -894,8 +928,11 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     swept++
                 }
 
+                // Stamped once, before writing, so the filename and finished_at agree
+                // rather than differing by however long serialising takes.
+                val finishedMs = System.currentTimeMillis()
                 val dir = File(ctx.getExternalFilesDir(null), "logs").apply { mkdirs() }
-                f = File(dir, "discover-${System.currentTimeMillis()}.json")
+                f = File(dir, "discover-$finishedMs.json")
                 outFile = f
                 f.bufferedWriter().use { out ->
                     out.write("{\n")
@@ -905,6 +942,21 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     // is no way to tell a stale capture from a current one except by
                     // remembering, and nobody remembers.
                     out.write("\"build\": \"${BuildTag.ID}\",\n")
+                    // WHEN, AND FOR HOW LONG. The filename carries an epoch stamp, but that
+                    // is when the file was WRITTEN, not when the run began -- and it does not
+                    // survive a copy or a rename. Without these, two captures of one vehicle
+                    // cannot be ordered, a stage result cannot be paired with the drive log
+                    // that followed it, and a run-time estimate can never be graded against a
+                    // measurement, which leaves it a guess forever (#7, #10). The drive CSV
+                    // has stamped every row since the beginning; it was the file saying what
+                    // the vehicle IS that had no clock. Same format, so they sort together.
+                    out.write("\"started_at\": \"${Obd.isoUtc(runStartMs)}\",\n")
+                    out.write("\"finished_at\": \"${Obd.isoUtc(finishedMs)}\",\n")
+                    out.write("\"elapsed_s\": ${"%.1f".format((finishedMs - runStartMs) / 1000.0)},\n")
+                    // The prediction, beside the outcome, so the estimator grades itself.
+                    // null when the run ended before it was willing to say anything.
+                    out.write("\"eta_first_s\": " +
+                        (if (etaFirstSecs > 0.0) "%.1f".format(etaFirstSecs) else "null") + ",\n")
                     // The condition the car was in. Without it a capture cannot be compared
                     // with anyone else's, and a constant cannot be told from an untouched field.
                     out.write("\"state\": \"${Session.captureState}\",\n")
