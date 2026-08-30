@@ -327,3 +327,27 @@ class ReadmeClaimsTest {
             File(root, "gradle/wrapper/gradle-wrapper.jar").isFile)
     }
 }
+
+/**
+ * Re-map has to be reachable without running something first.
+ *
+ * It used to require cap.info, which is set part-way through a run, so from a cold connect
+ * the button did not exist and the only way to reach it was to start a capture and stop it.
+ * That is the dance resumable mapping exists to remove, and Re-map is now the ordinary way
+ * to begin a fresh map rather than a repair for a stale one.
+ */
+class RemapReachableTest {
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/MainActivity.kt").readText()
+
+    @Test fun remapDoesNotWaitForAVehicleToBeIdentified() {
+        val i = src.indexOf("""Text("Re-map")""")
+        assertTrue("the Re-map button must exist", i > 0)
+        val block = src.substring(maxOf(0, i - 700), i)
+        assertTrue("it must not be gated on cap.info", !block.contains("cap.info != null"))
+        assertTrue("only on a connected adapter", block.contains("ble.connected && ident != null"))
+        assertTrue("and on nothing already running", block.contains("!cap.running"))
+    }
+}

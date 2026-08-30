@@ -311,12 +311,20 @@ class MainActivity : ComponentActivity() {
                 // stop it -- and on a non-CAN vehicle Stop did nothing, which made it
                 // unreachable. It is an escape hatch for a stale map; it has to be reachable
                 // whenever there is a vehicle and nothing running.
-                if (cap.info != null && !cap.running) {
-                    Button(
-                        enabled = ble.connected && ident != null,
-                        onClick = { cap.start(forceDiscover = true) },
-                    ) { Text("Re-map") }
-                }
+                // SAME GATE AS CAPTURE, deliberately. It used to require cap.info, which is
+                // only set part-way through a run -- so from a cold connect the button was
+                // not there, and the only route to it was to start a capture and stop one,
+                // which is the dance resumable mapping exists to remove. Re-map is now the
+                // ordinary way to begin a fresh map, not a repair for a stale one.
+                //
+                // start(forceDiscover = true) reads the VIN itself, so nothing about the
+                // vehicle needs to be known before pressing it. On a car with no map it
+                // simply behaves as CAPTURE does.
+                Button(
+                    enabled = ble.connected && ident != null && !cap.running &&
+                        !runner.running && !discover.running,
+                    onClick = { cap.start(forceDiscover = true) },
+                ) { Text("Re-map") }
             }
             cap.info?.let { v ->
                 Card(Modifier.fillMaxWidth()) {
