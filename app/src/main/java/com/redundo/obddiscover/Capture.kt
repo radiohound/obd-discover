@@ -837,7 +837,19 @@ class CaptureRunner(
         }
     }
 
-    private fun driveStep(plan: Pair<String, List<String>>) {
+    private fun driveStep(planIn: Pair<String, List<String>>) {
+        // FOCUSED LOG. Narrow the plan to the identifiers this vehicle has named or open
+        // questions about, when asked. Resolution is the point: the same warm-up that gives
+        // 17 samples across 577 columns gives hundreds across twenty, and a signal that
+        // needs 30 samples to be called `correlated` cannot get them any other way.
+        val focus = if (!Session.focusOnKnownSignals) emptyList() else
+            VehicleId.contributedSignals(info?.make ?: "", modelClean)
+                .map { it.did }.filter { it.isNotEmpty() }.distinct()
+        val plan = if (focus.isEmpty()) planIn else planIn.first to focus
+        if (focus.isNotEmpty()) {
+            ble.log("focused log: ${focus.size} identifiers instead of ${planIn.second.size}")
+            detail = "focused on ${focus.size} known signals"
+        }
         Session.activePlan = plan          // whichever way it was obtained
         phase = CapPhase.DRIVE
         // Says what to do AND what the alternative is. A parked session -- mapping a car
@@ -850,7 +862,8 @@ class CaptureRunner(
         // All headers when discovery produced them; the single-header plan otherwise (a
         // cached map, or a non-CAN car). Session.activePlan keeps the single-header form so
         // KEEP DRIVING and the UI are unaffected.
-        val all = discover.logPlanAll
+        // A focused run must not be widened back out by the multi-header plan.
+        val all = if (focus.isNotEmpty()) emptyList() else discover.logPlanAll
         runner.start("discovered", plan.second, plan.first, 1.0,
                      multi = if (all.size > plan.second.size) all else emptyList()) { f ->
             LogService.stop(ctx)

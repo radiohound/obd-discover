@@ -473,6 +473,25 @@ class MainActivity : ComponentActivity() {
                                 color = if (cap.coverage.contains("⚠")) Color(0xFFE65100)
                                         else Color(0xFF2E7D32))
                         }
+                        // Only offered when this vehicle actually has named signals to
+                        // focus on -- an empty focus would silently log nothing.
+                        val known = VehicleId.contributedSignals(
+                            cap.info?.make ?: "", cap.modelClean)
+                        if (known.isNotEmpty()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = Session.focusOnKnownSignals,
+                                    onCheckedChange = { Session.focusOnKnownSignals = it })
+                                Text("Log only the ${known.size} known signals",
+                                    fontSize = 13.sp)
+                            }
+                            Text(
+                                "Trades discovery for resolution, and finds nothing new. A " +
+                                "full log on this vehicle takes tens of seconds per row, so " +
+                                "a warm-up yields fewer samples than correlate needs; a " +
+                                "focused one yields hundreds. Use it to CONFIRM a signal, " +
+                                "not to find one.",
+                                fontSize = 11.sp, color = Color(0xFF555555))
+                        }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(checked = Session.onlineVinLookup,
                                 onCheckedChange = { Session.onlineVinLookup = it })

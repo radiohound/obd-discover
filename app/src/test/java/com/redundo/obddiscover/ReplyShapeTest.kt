@@ -1066,3 +1066,36 @@ class BuildStampTest {
         assertTrue("the screen must show coverage", ui.contains("cap.coverage"))
     }
 }
+
+/**
+ * The focused log exists because resolution and coverage trade against each other.
+ *
+ * An F10's 577 columns take 34 s per row, so a 10-minute warm-up yields 17 samples —
+ * under correlate's floor of 30. Two signals on that car sit at `inferred` with r above
+ * 0.99 purely for want of samples, and no amount of driving fixes it while every column
+ * is being logged.
+ */
+class FocusedLogTest {
+    private fun src(n: String) =
+        java.io.File("src/main/java/com/redundo/obddiscover/$n").readText()
+
+    @Test fun theFocusedPlanComesFromContributedSignals() {
+        val cap = src("Capture.kt")
+        assertTrue("focus must be built from the contributed signals",
+            cap.contains("VehicleId.contributedSignals(info?.make ?: \"\", modelClean)"))
+        assertTrue("and must replace the plan", cap.contains("planIn.first to focus"))
+    }
+
+    @Test fun anEmptyFocusNeverNarrowsTheLog() {
+        // Focusing on nothing would log nothing, which is worse than logging everything.
+        assertTrue("an empty focus must fall through to the full plan",
+            src("Capture.kt").contains("if (focus.isEmpty()) planIn else"))
+        assertTrue("and the toggle must only appear when there is something to focus on",
+            src("MainActivity.kt").contains("if (known.isNotEmpty())"))
+    }
+
+    @Test fun aFocusedRunIsNotWidenedByTheMultiHeaderPlan() {
+        assertTrue("logPlanAll must be suppressed under focus",
+            src("Capture.kt").contains("if (focus.isNotEmpty()) emptyList() else discover.logPlanAll"))
+    }
+}

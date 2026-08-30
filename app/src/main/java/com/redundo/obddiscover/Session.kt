@@ -59,6 +59,20 @@ object Session {
     var onlineVinLookup by mutableStateOf(false)
 
     /**
+     * Log ONLY the identifiers this vehicle already has named or under question.
+     *
+     * A full drive log carries everything the sweep found, and on a big map that is slow:
+     * an F10's 577 columns take 34 s per row, so a 10-minute warm-up yields 17 samples --
+     * under correlate's floor of 30, which is why two signals here are stuck at `inferred`
+     * with r values well above 0.90 and not enough samples to say so.
+     *
+     * Twenty identifiers take 1.2 s per row and the same warm-up yields 511. This trades
+     * discovery for resolution deliberately, and only when asked: it finds nothing new, and
+     * is for confirming what is already suspected.
+     */
+    var focusOnKnownSignals by mutableStateOf(false)
+
+    /**
      * The (header, requests) actually being logged right now.
      *
      * Set by CaptureRunner whichever way the plan was obtained -- freshly discovered OR
