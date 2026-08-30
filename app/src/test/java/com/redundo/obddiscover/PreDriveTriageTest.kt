@@ -191,3 +191,38 @@ class TriageWordingTest {
         assertEquals("UNPOPULATED", PreDriveTriage.Kind.UNPOPULATED.name)
     }
 }
+
+/**
+ * Order of operations around the capture file.
+ *
+ * The triage pass was written after the file, so its classifications and its probe count
+ * were serialised before it ran -- a pass that worked and could record nothing, which on the
+ * first real run looked exactly like a pass that never fired.
+ */
+class TriageRunsBeforeTheFileIsWrittenTest {
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Discover.kt").readText()
+
+    @Test fun triageComesBeforeTheWriter() {
+        val triage = src.indexOf("// --- pre-drive triage (#8)")
+        val stamp = src.indexOf("val finishedMs = System.currentTimeMillis()")
+        assertTrue("the triage pass must exist", triage > 0)
+        assertTrue("and must run before the file is stamped and written", triage < stamp)
+    }
+
+    /** And after the sweeps, since it compares against what they stored. */
+    @Test fun triageComesAfterTheSweeps() {
+        val sweep = src.indexOf("// --- phase 2: sweep everything recon added")
+        val triage = src.indexOf("// --- pre-drive triage (#8)")
+        assertTrue(sweep in 1 until triage)
+    }
+
+    /** Its probes are counted in the total the file reports. */
+    @Test fun triageProbesReachTheCapture() {
+        val triage = src.indexOf("probesTriage++")
+        val write = src.indexOf("""out.write("\"probes\"""")
+        assertTrue("triage must increment before the count is written", triage in 1 until write)
+    }
+}
