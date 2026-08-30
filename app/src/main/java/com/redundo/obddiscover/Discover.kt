@@ -875,16 +875,24 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 // come back with their swept flag intact, so the sweeps below skip what is
                 // genuinely finished and redo what only looked finished.
                 if (resumeBlocks.isNotEmpty()) {
-                    var done = 0; var requeued = 0
+                    var done = 0; var requeued = 0; var asleep = 0
                     for (b in resumeBlocks) {
-                        if (!liveHeaders.contains(b.header)) continue
+                        // CARRIED EVEN WHEN ITS HEADER IS SILENT TODAY. Only found.values is
+                        // written to the capture, so dropping a block here erases it from the
+                        // file the NEXT session resumes from -- one module failing to answer
+                        // 0100 on one plug-in would permanently delete an hour of sweeping,
+                        // silently, which is the exact failure this whole design exists to
+                        // prevent. It is carried and simply not swept; the header may well
+                        // answer again next time.
                         found[b.name] = b
+                        if (!liveHeaders.contains(b.header)) { asleep++; continue }
                         if (b.swept && b.fullHits.isNotEmpty()) done++
                         else if (b.swept) requeued++
                     }
                     blocksFound = found.size
                     ble.log("resuming: ${found.size} block(s) known, $done already swept, " +
                         "$requeued empty and re-queued" +
+                        (if (asleep > 0) ", $asleep on headers not answering today" else "") +
                         if (resumeReconHeaders.isEmpty()) ""
                         else ", recon done on ${resumeReconHeaders.sorted().joinToString(" ")}")
 
@@ -1080,7 +1088,9 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 // is believed.
                 fun finished(b: DiscoveredBlock) =
                     b.swept && (b.fullHits.isNotEmpty() || b.emptyRuns >= 2)
-                val seeded = found.values.filterNot { finished(it) }
+                val seeded = found.values
+                    .filter { liveHeaders.contains(it.header) }
+                    .filterNot { finished(it) }
                 if (seeded.isNotEmpty()) {
                     phase = "sweep"
                     ble.log("sweeping ${seeded.size} block(s) proved by phase 0, before recon")
@@ -1173,6 +1183,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 for (b in found.values.toList()) {
                     if (stopFlag) break
                     if (b.name in swept0 || finished(b)) continue
+                    if (!liveHeaders.contains(b.header)) continue   // carried, not sweepable
                     sweepOne(b, { found.size }, exact = true)
                 }
 
