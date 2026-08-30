@@ -259,3 +259,69 @@ class ReportAlwaysHasLogTest {
             body.contains("no adapter activity recorded"))
     }
 }
+
+/**
+ * Which headers a make must not be probed on (#9).
+ *
+ * The hint table itself is an Android asset and reads back empty off-device, so what is
+ * asserted here is the rule, not the table. The table facts behind it -- that no VAG make
+ * hints 7E4, and that Audi, VW and Porsche each carry seven powertrain-flagged 7E5 hints --
+ * are recorded in VehicleId.excludedHeaders where the reasoning lives.
+ */
+class HeaderExclusionTest {
+
+    /**
+     * The header that actually reaches a VAG car in the forbidden range is 7E2, and it
+     * arrives from the make-INDEPENDENT default -- not from any hint. Excluding only the
+     * header the note names, 7E4, would have protected nothing: no VAG make hints it, so it
+     * was never sent to one in the first place.
+     */
+    @Test fun theExcludedHeaderIsOneOfOurOwnDefaults() {
+        assertTrue("7E2" in Discover.HEADERS_11BIT)
+        assertTrue("7E2" in VehicleId.excludedHeaders("Audi"))
+    }
+
+    /** The five headers that document nothing on any VAG marque, including the hazard. */
+    @Test fun theEmptyHeadersInTheRangeAreExcluded() {
+        val e = VehicleId.excludedHeaders("Audi")
+        for (h in listOf("7E2", "7E3", "7E4", "7E6", "7E7")) assertTrue(h, h in e)
+        assertTrue("7E0 is the engine and must stay", "7E0" !in e)
+        assertTrue("7E1 is the TCM and must stay", "7E1" !in e)
+        assertTrue("the broadcast must stay", "7DF" !in e)
+    }
+
+    /**
+     * 7E5 is kept against the letter of the source note. OBDb documents 575 signals there
+     * on four VAG marques and every one is high-voltage battery, so excluding it would cost
+     * an e-tron its entire battery dataset to protect against a module it is not.
+     */
+    @Test fun theBatteryHeaderIsNotExcluded() {
+        assertTrue("7E5" !in VehicleId.excludedHeaders("Audi"))
+        assertTrue("7E5" !in VehicleId.excludedHeaders("Porsche"))
+    }
+
+    /** The finding is Audi's; the group shares the architecture. */
+    @Test fun theExclusionCoversTheGroupNotOneMarque() {
+        for (mk in listOf("Volkswagen", "Porsche", "Skoda", "SEAT", "Bentley", "Lamborghini")) {
+            assertTrue(mk, "7E4" in VehicleId.excludedHeaders(mk))
+        }
+    }
+
+    /** A sibling make from the WMI table triggers it too, since that is how VAG plants read. */
+    @Test fun aSiblingMakeTriggersTheExclusion() {
+        assertTrue("7E2" in VehicleId.excludedHeaders("Unknown", also = listOf("Audi")))
+    }
+
+    /** Everyone else keeps the range. GM answered 69 DIDs on 7E4 with nothing adverse. */
+    @Test fun nonVagMakesAreUnaffected() {
+        for (mk in listOf("Chevrolet", "GMC", "Ford", "Hyundai", "BMW", "Subaru", "Toyota")) {
+            assertTrue(mk, VehicleId.excludedHeaders(mk).isEmpty())
+        }
+    }
+
+    /** An unknown make excludes nothing: a guess must never silently narrow a scan. */
+    @Test fun anUnknownMakeExcludesNothing() {
+        assertTrue(VehicleId.excludedHeaders("").isEmpty())
+        assertTrue(VehicleId.excludedHeaders("Rivian").isEmpty())
+    }
+}

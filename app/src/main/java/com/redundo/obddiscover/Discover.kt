@@ -641,6 +641,9 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
      * operator is sitting in a parked car deciding whether this is working.
      */
     var hintedBlocks: List<Int> = emptyList()
+
+    /** Headers this make must not be probed on at all. See VehicleId.excludedHeaders. */
+    var excludedHeaders: Set<String> = emptySet()
     /** Extra headers this make is known to use, e.g. Toyota's 700. */
     var hintedHeaders: List<String> = emptyList()
 
@@ -729,7 +732,13 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 // 6F1 expands into one entry per curated target. headers() excludes it (it
                 // is not a plain three-character CAN id), so this is the only route to it.
                 val ext = if (hintedExt) Discover.BMW_TARGETS.map { "6F1@$it" } else emptyList()
-                for (h in (Discover.HEADERS_11BIT + hintedHeaders + ext).distinct()) {
+                // Applied to the UNION, not to the hints. 7E2 arrives from the
+                // make-independent default and 7E5 from the hint table, and both sit inside
+                // the range the exclusion is about -- filtering either source alone would
+                // leave the other in. See VehicleId.excludedHeaders.
+                val censusHeaders = (Discover.HEADERS_11BIT + hintedHeaders + ext)
+                    .distinct().filter { it !in excludedHeaders }
+                for (h in censusHeaders) {
                     if (stopFlag) break
                     selectHeader(h)
                     val (ok, _, nak) = ask("0100")
@@ -972,6 +981,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     out.write("\"make\": \"$hintMake\", ")
                     out.write("\"headers_added\": [${hintedHeaders.filter { it !in Discover.HEADERS_11BIT }.joinToString(", ") { "\"$it\"" }}], ")
                     out.write("\"blocks_hinted\": ${hintedBlocks.size}, ")
+                    out.write("\"headers_excluded\": [${excludedHeaders.sorted().joinToString(", ") { "\"$it\"" }}], ")
                     out.write("\"known_requests_offered\": ${knownRequests.size}, ")
                     out.write("\"known_requests_sent\": $probesKnown},\n")
                     out.write("\"probe_breakdown\": {\"known\": $probesKnown, ")

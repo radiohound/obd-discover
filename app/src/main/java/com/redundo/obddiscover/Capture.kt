@@ -720,6 +720,7 @@ class CaptureRunner(
                 }
                 phase = CapPhase.DISCOVER
 
+                discover.excludedHeaders = if (mk.isEmpty()) emptySet() else VehicleId.excludedHeaders(mk, also = sib)
                 discover.hintedBlocks = if (mk.isEmpty()) emptyList() else VehicleId.blockPrefixes(mk, also = sib)
                 discover.hintedHeaders = if (mk.isEmpty()) emptyList() else VehicleId.headers(mk, also = sib)
                 discover.hinted29 = if (mk.isEmpty()) emptyList() else VehicleId.headers29(mk, also = sib)
