@@ -668,6 +668,11 @@ class CaptureRunner(
             }
             ble.log("Mode-01 bitmap scan: ${stdPids.size} PIDs supported")
             discover.stdPidsIn = stdPids
+            // Say it on screen, not only in the adapter log. A cache MISS never reaches the
+            // coverage line below, and a miss is exactly when a vehicle is being scanned --
+            // so the one run that most needs to report its result was the one saying
+            // nothing. The cached branch overwrites this with the fuller line.
+            if (stdPids.isNotEmpty()) coverage = "${stdPids.size} standard PIDs found"
 
             val cached = if (forceDiscover) null else findCached(vinKey)
             if (cached != null) {
