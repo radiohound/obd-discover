@@ -892,6 +892,7 @@ class CaptureRunner(
                 // costs ten minutes; logging the wrong car's DIDs costs the whole drive.
                 discover.resumeBlocks = prior?.first ?: emptyList()
                 discover.resumeReconHeaders = prior?.second ?: emptySet()
+                discover.resumeTriage = findTriage(vinKey)
                 status = when {
                     forceDiscover -> "re-mapping from scratch — $SESSION_MAP_MINUTES min, then the drive"
                     prior != null -> "continuing the map — " +
@@ -1132,6 +1133,28 @@ class CaptureRunner(
      * pending when they do not, which is the reading that cannot lose data: a block that
      * really was empty simply gets asked once more.
      */
+    /**
+     * Every identifier classification an earlier session recorded, "header|request" to
+     * "kind@state". Merged across captures, newest winning, so a re-decision replaces the
+     * decision it revises rather than sitting beside it.
+     */
+    private fun findTriage(key: String): Map<String, String> {
+        if (key.isEmpty()) return emptyMap()
+        val dir = File(ctx.getExternalFilesDir(null), "logs")
+        val files = dir.listFiles { f -> f.name.startsWith("discover-") && f.name.endsWith(".json") }
+            ?.sortedBy { it.lastModified() }?.takeLast(MAX_PROGRESS_FILES) ?: return emptyMap()
+        val out = LinkedHashMap<String, String>()
+        for (f in files) {
+            try {
+                val o = JSONObject(f.readText())
+                if (o.optString("vin_key") != key) continue
+                val t = o.optJSONObject("triage") ?: continue
+                for (k in t.keys()) out[k] = t.optString(k)
+            } catch (_: Exception) { /* unreadable capture: try the next */ }
+        }
+        return out
+    }
+
     private fun findProgress(key: String): Pair<List<DiscoveredBlock>, Set<String>>? {
         if (key.isEmpty()) return null
         val dir = File(ctx.getExternalFilesDir(null), "logs")

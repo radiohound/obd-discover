@@ -95,3 +95,69 @@ class PreDriveTriageTest {
         r.rows.forEach { assertNull(it.duplicateOf) }
     }
 }
+
+/**
+ * Triage wired into the capture flow (#8).
+ *
+ * The ranking was merged in #4 and never called, because where it belonged was a question
+ * the app could not answer: there was no moment between "mapping" and "the drive". The
+ * session budget created one.
+ */
+class TriageWiringTest {
+    private fun src(n: String) = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/$n").readText()
+
+    /** It has to actually be called, which for four months it was not. */
+    @Test fun theRankingIsCalled() {
+        val d = src("Discover.kt")
+        assertTrue("classify must be used", d.contains("PreDriveTriage.classify(first, second)"))
+        assertTrue("and rank", d.contains("PreDriveTriage.rank(quads)"))
+    }
+
+    /**
+     * Re-probing 703 identifiers every session would spend a quarter of the budget
+     * re-deciding what was already decided. Classifications persist, like swept blocks.
+     */
+    @Test fun classificationsPersistAndAreReused() {
+        val d = src("Discover.kt")
+        assertTrue("prior decisions come in", d.contains("triage.putAll(resumeTriage)"))
+        assertTrue("and filter what gets probed",
+            d.contains("""triage["${'$'}h|${'$'}req"]?.endsWith("@${'$'}stateNow") != true"""))
+        assertTrue("and are read back", src("Capture.kt").contains("discover.resumeTriage = findTriage"))
+    }
+
+    /** STATIC at warm idle and MOVED while driving is the distinction being drawn. */
+    @Test fun aClassificationIsBoundToTheStateItWasMadeIn() {
+        assertTrue(src("Discover.kt").contains("""}@${'$'}stateNow""""))
+    }
+
+    /**
+     * The drive drops only what two standing probes prove is worthless: all-zeros or
+     * all-Fs twice, and a second name for a signal already carried. STATIC stays --
+     * coolant at equilibrium and a stopped car hold still too.
+     */
+    @Test fun onlyTheProvablyWorthlessIsDroppedFromTheDrive() {
+        val d = src("Discover.kt")
+        val i = d.indexOf("val dropped = ranked?.rows")
+        assertTrue("the drop set must exist", i > 0)
+        val body = d.substring(i, i + 300)
+        assertTrue("unpopulated goes", body.contains("Kind.UNPOPULATED"))
+        assertTrue("duplicates go", body.contains("duplicateOf != null"))
+        assertTrue("static does not", !body.contains("Kind.STATIC"))
+    }
+
+    /** Nothing is removed from the capture -- only the drive plan is narrowed. */
+    @Test fun theCaptureKeepsEverything() {
+        val d = src("Discover.kt")
+        assertTrue("allHits is unfiltered",
+            d.contains("allHits = found.values.flatMap { b ->"))
+        assertTrue("the drop applies to the log plan", d.contains("in dropped }"))
+    }
+
+    /** It respects the session clock like every other pass. */
+    @Test fun triageStopsWhenTheSessionDoes() {
+        assertTrue(src("Discover.kt").contains("if (stopFlag || outOfTime()) { paused = true; break }"))
+    }
+}

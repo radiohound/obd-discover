@@ -397,6 +397,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
     private var probesKnown = 0
     private var probesRecon = 0
     private var probesSweep = 0
+    private var probesTriage = 0
 
     /**
      * Running totals that only ever go UP.
@@ -708,6 +709,25 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
     var resumeReconHeaders: Set<String> = emptySet()
 
     /**
+     * What an earlier session already decided about each identifier, keyed "header|request"
+     * to "kind@state".
+     *
+     * Re-probing every hit on every plug-in is the obvious way to do triage and the wrong
+     * one: a BMW carrying 703 identifiers would spend two and a half minutes of a ten-minute
+     * session re-deciding what it decided last time, and a Silverado eight. Classifications
+     * persist for the same reason swept blocks do -- the session pays for what is new.
+     *
+     * The state is part of the value, not decoration. STATIC at warm idle and MOVED while
+     * driving is the distinction the whole pass exists to draw, so a classification made in
+     * one state does not answer for another.
+     */
+    var resumeTriage: Map<String, String> = emptyMap()
+    private val triage = LinkedHashMap<String, String>()
+
+    /** MOVED, STATIC, UNPOPULATED and duplicate counts from the last pass. */
+    var triageNote by mutableStateOf(""); private set
+
+    /**
      * How long this session is willing to spend mapping before handing over to the drive.
      *
      * A map is now a queue that survives being put down, so there is no longer any reason to
@@ -786,12 +806,12 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
         if (running) return
         stopFlag = false; running = true; probes = 0
         blocksFound = 0; didsFound = 0; pct = 0; phase = ""; eta = ""
-        probesKnown = 0; probesRecon = 0; probesSweep = 0
+        probesKnown = 0; probesRecon = 0; probesSweep = 0; probesTriage = 0
         nrcByHeader.clear(); refusals.clear(); timeouts = 0; retries = 0; consecutiveDead = 0; curHeader = ""
         stopping = false; aborted = false; matchedModels = emptyList(); allHits = emptyList()
         runStartMs = System.currentTimeMillis()
         knownTotal = 0; reconTotalP = 0; pctFloor = 0; etaSecs = 0.0; etaFirstSecs = 0.0
-        paused = false
+        paused = false; triage.clear(); triageNote = ""
         estBlocks = Discover.blockPrior(hintedBlocks.size)
 
         ble.runOnWorker {
@@ -1294,7 +1314,8 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     out.write("\"known_requests_offered\": ${knownRequests.size}, ")
                     out.write("\"known_requests_sent\": $probesKnown},\n")
                     out.write("\"probe_breakdown\": {\"known\": $probesKnown, ")
-                    out.write("\"recon\": $probesRecon, \"sweep\": $probesSweep, ")
+                    out.write("\"recon\": $probesRecon, \"sweep\": $probesSweep, " +
+                        "\"triage\": $probesTriage, ")
                     out.write("\"timeouts\": $timeouts, \"retries\": $retries},\n")
                     // PHASE 1: what this vehicle says when it declines. Recorded only.
                     out.write("\"refused_but_present\": {")
@@ -1322,6 +1343,12 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     out.write("\"mode01\": [${stdPidsIn.joinToString(", ") { "\"$it\"" }}],\n")
                     // Both: recon_done is the whole-vehicle answer a reader wants, and
                     // recon_headers is what the next session actually resumes from.
+                    // The classification of every identifier, so the next session pays
+                    // only for what is new -- and so a reader can see what the drive dropped
+                    // and why, rather than finding a shorter log and guessing.
+                    out.write("\"triage\": {" + triage.entries.joinToString(", ") {
+                        "\"${it.key}\": \"${it.value}\""
+                    } + "},\n")
                     out.write("\"paused\": $paused,\n")
                     out.write("\"recon_done\": $reconComplete,\n")
                     out.write("\"recon_headers\": [${reconDoneHdrs.joinToString(", ") { "\"$it\"" }}],\n")
@@ -1378,8 +1405,73 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 }
                 blocksFound = found.size
 
+                // --- pre-drive triage (#8) -----------------------------------------
+                //
+                // A row of a drive log is one request per column, so a map of 1,853 columns
+                // is 7.4 minutes a row at the rate these runs achieve and 3.7 hours before
+                // correlate has the thirty samples it needs. The drive would not be slow,
+                // it would be void. cheeseprince wrote the ranking for this in #4 and left
+                // it uncalled, because where it belongs was a question the app could not
+                // answer then. The session budget created the seam: mapping ends, the drive
+                // begins, and this is what sits between them.
+                //
+                // Ask each hit once more and compare against what the sweep already stored.
+                // Bytes differed: a live signal. Identical: static, which is not the same as
+                // worthless -- coolant at equilibrium and a stopped car both hold still.
+                // All 00 or all FF twice: answering and carrying nothing.
+                triage.putAll(resumeTriage)
+                val stateNow = Session.captureState
+                val toProbe = found.values
+                    .filter { liveHeaders.contains(it.header) }
+                    .flatMap { b -> b.fullHits.map { Triple(b.header, it.first, it.second) } }
+                    .filter { (h, req, _) -> triage["$h|$req"]?.endsWith("@$stateNow") != true }
+                if (toProbe.isNotEmpty() && !stopFlag) {
+                    phase = "triage"
+                    var done = 0
+                    for ((hdr, req, first) in toProbe) {
+                        if (stopFlag || outOfTime()) { paused = true; break }
+                        selectHeader(hdr)
+                        val (present, payload, _) = ask(req)
+                        probes++; probesTriage++; done++
+                        val second = if (present) payload else null
+                        triage["$hdr|$req"] =
+                            "${PreDriveTriage.classify(first, second)}@$stateNow"
+                        if (done % 16 == 0) {
+                            overall(probesKnown + probesRecon + probesSweep + probesTriage)
+                            progress = "triage $done/${toProbe.size}"
+                        }
+                    }
+                }
+
+                // Rank what is classified. Everything stays in the capture; only the drive
+                // is narrowed, and only by what is provably not worth a column.
+                val quads = found.values.flatMap { b ->
+                    b.fullHits.mapNotNull { (req, first) ->
+                        val k = triage["${b.header}|$req"]?.substringBefore('@') ?: return@mapNotNull null
+                        PreDriveTriage.Quad(b.header, req, first,
+                            if (k == PreDriveTriage.Kind.STATIC.name) first
+                            else if (k == PreDriveTriage.Kind.UNPOPULATED.name) first else null)
+                    }
+                }
+                val ranked = if (quads.isEmpty()) null else PreDriveTriage.rank(quads)
+                ranked?.let { triageNote = it.summary() }
+
+                // WHAT THE DRIVE DROPS, AND WHY ONLY THIS. An UNPOPULATED identifier reads
+                // all zeros or all Fs twice over -- it is answering and carrying nothing. A
+                // duplicate read identically to another on both probes, so it is the same
+                // signal under a second name; on this BMW 225817 and 2258EB were
+                // byte-identical across 99.51% of 1,427 logged rows, and finding that cost a
+                // whole drive. Both are provable from two standing probes.
+                //
+                // STATIC stays. Coolant at equilibrium and a stopped car hold still too, and
+                // dropping those would be exactly the silent loss this project keeps finding.
+                val dropped = ranked?.rows.orEmpty()
+                    .filter { it.kind == PreDriveTriage.Kind.UNPOPULATED || it.duplicateOf != null }
+                    .map { "${it.header}|${it.request}" }.toSet()
+
                 val byHeader = found.values
                     .flatMap { b -> b.fullHits.map { b.header to it.first } }
+                    .filterNot { "${it.first}|${it.second}" in dropped }
                     .groupBy({ it.first }, { it.second })
                 val best = byHeader.maxByOrNull { it.value.size }
                 aborted = stopFlag

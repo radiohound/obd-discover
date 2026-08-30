@@ -582,6 +582,10 @@ class MainActivity : ComponentActivity() {
                             )
                             Text("${discover.blocksFound} blocks · ${discover.didsFound} DIDs",
                                 fontSize = 13.sp)
+                            // What the drive is about to be handed, and what it is not.
+                            if (discover.triageNote.isNotEmpty()) {
+                                Text(discover.triageNote, fontSize = 11.sp)
+                            }
                             Text(discover.progress, fontSize = 11.sp)
                             // Loud on purpose. This is the one line during a 30-minute scan
                             // that the operator can act on, and the window to act is while

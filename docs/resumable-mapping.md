@@ -138,10 +138,33 @@ sometimes has two:
   that answered `conditionsNotCorrect`, and no map this project holds was made
   anywhere but parked
 
+## Triage, at the seam
+
+`PreDriveTriage` was merged in #4 and left uncalled, because where it belonged was
+a question the app could not answer: there was no moment between *mapping* and
+*the drive*. The session budget created one, and it runs there.
+
+Each hit is asked once more and compared against what the sweep stored. Bytes
+differed — a live signal. Identical — static, which is not the same as worthless,
+since coolant at equilibrium and a stopped car both hold still. All `00` or all
+`FF` twice — answering and carrying nothing.
+
+**The drive drops only what two standing probes prove.** An `UNPOPULATED`
+identifier carries nothing by definition, and a duplicate is a second name for a
+signal already in the log — on an F10, `225817` and `2258EB` were byte-identical
+across 99.51% of 1,427 logged rows, and finding that cost a whole drive. `STATIC`
+stays. Nothing is removed from the capture; only the drive plan is narrowed.
+
+Classifications persist per identifier and per state, the same way swept blocks
+do. Re-deciding 703 identifiers on every plug-in would spend a quarter of a
+session repeating itself, and `STATIC` at warm idle against `MOVED` while driving
+is exactly the distinction the pass exists to draw — so a decision made in one
+state does not answer for another.
+
 ## What this does not solve
 
-The drive log stays as wide as the map, which is #8 and belongs to
-`PreDriveTriage`. The run-time estimate is still imperfect; it now grades itself,
-which is different from being right. And nothing here shortens a first session on
-an unknown vehicle, because recon has to find the blocks before anything can be
-resumed.
+The run-time estimate is still imperfect; it now grades itself, which is
+different from being right. Nothing here shortens a first session on an unknown
+vehicle, because recon has to find the blocks before anything can be resumed. And
+triage ranks on two probes standing still — which of the movers is oil
+temperature still takes a thermal ramp, a drive log and `correlate` on a host.
