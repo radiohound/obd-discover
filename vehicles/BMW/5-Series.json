@@ -88,6 +88,19 @@
       "confidence": "ground-truth"
     },
     {
+      "did": "224303",
+      "header": "7DF",
+      "name": "coolant temperature (SAE scale)",
+      "unit": "degC",
+      "scale": 1,
+      "offset": -40,
+      "confidence": "inferred",
+      "r": 0.999,
+      "against": "legislated coolant PID 0105",
+      "verified": "raw - 40, the SAE form. Against the legislated coolant PID: r=0.999, slope 0.979, offset +3.4 degC -- a DIFFERENT measuring point on the engine rather than a mirror of 0105, which is what the offset shows. Recorded as inferred only because the sample count behind the r was not preserved; the correlation itself is well above the 0.90 floor.",
+      "source": "identified in this project's own sweeping of the enhanced blocks"
+    },
+    {
       "did": "224402",
       "header": "7DF",
       "name": "oil temperature",
@@ -107,8 +120,28 @@
       "unit": "Nm",
       "scale": 0.1,
       "confidence": "ground-truth",
-      "verified": "raw x 0.1 gives 398.9 Nm, the stock N55 reference figure, which is the external check. NOT a constant: it moved between 3985 and 3989 counts within one drive, so it is a live baseline rather than a calibration value. 2258BA is expressed as a percentage of it, and horsepower as 2258BA x 224517 x rpm.",
+      "verified": "raw x 0.1 gives 398.9 Nm, the stock N55 reference figure, which is the external check. NOT a constant: it moved between 3985 and 3989 counts within one drive, so it is a live baseline rather than a calibration value. 2258BA is expressed as a percentage of it, and horsepower as 2258BA x 224517 x rpm. Same tuning caveat as 2258BA: the convention transfers, the number may not.",
       "source": "identified in this project's own sweeping of 0x2258xx"
+    },
+    {
+      "did": "224A2E",
+      "header": "7DF",
+      "name": "rev limiter",
+      "unit": "rpm",
+      "scale": 1,
+      "confidence": "ground-truth",
+      "verified": "Constant 6800. Confirmed because a wide-open-throttle pull reached exactly 6800 rpm -- the value the field holds is the value the engine stopped at, which is an external anchor rather than a correlation. Note the 7000 in the gauge profile's RPM row is the dial's full scale, not the limiter.",
+      "source": "identified in this project's own sweeping of the enhanced blocks"
+    },
+    {
+      "did": "224A4B",
+      "header": "7DF",
+      "name": "engine load",
+      "unit": "%",
+      "scale": 0.392,
+      "confidence": "inferred",
+      "verified": "raw / 2.55, giving percent. Slope 0.976 against the legislated load PID. Recorded as inferred because the r and sample count were not preserved.",
+      "source": "identified in this project's own sweeping of the enhanced blocks"
     },
     {
       "did": "22586F",
@@ -129,12 +162,12 @@
       "confidence": "ground-truth",
       "r": 0.938,
       "against": "MAF-derived power",
-      "verified": "Anchored on engine behaviour, three ways independent of scale: it collapses to zero on overrun, it peaks at 5940 rpm for power and 3800 rpm for torque -- the N55's published curve -- and it correlates r=+0.938 against MAF-derived power. Scale then pinned at 0.1 Nm/count from the DME's own calibration convention. Reported live as a percentage of 224517.",
+      "verified": "Anchored on engine behaviour, three ways independent of scale: it collapses to zero on overrun, it peaks at 5940 rpm for power and 3800 rpm for torque -- the N55's published curve -- and it correlates r=+0.938 against MAF-derived power. Scale then pinned at 0.1 Nm/count from the DME's own calibration convention. Reported live as a percentage of 224517. The donor car is TUNED, so the magnitudes here are this vehicle's rather than a stock N55's; the 0.1 Nm/count convention is what transfers, and it should hold on any MEVD17.2.",
       "source": "identified in this project's own sweeping of 0x2258xx. UNNAMED IN ALL SIX COMMUNITY BMW LISTS -- this is not a decode anyone published, it was worked out from the car."
     }
   ],
   "source": "obd-discover, 4 on-car capture(s) 2026-08; Mode-01 support scanned 2026-08-29",
-  "notes": "535i (F10). 2258xx and 224Axx are absent from the community list entirely. Enhanced Mode-22 reads in the 58xx block on the 7DF functional broadcast decode byte 0 only; a full u16 read there ingests NAK frames. That constraint comes from obd-gauge-cluster's profile and matters for anyone decoding 2258xx from a broadcast. 225817 and 2258EB were oil-temperature candidates in the 58xx block and are byte-identical to each other on 99.51% of 1,427 logged rows -- one signal under two identifiers, which is what makes them candidates rather than two findings. Horsepower on the dash is computed from 2258BA x 224517 x rpm; everything else shown there is standard Mode-01, not enhanced DIDs.",
+  "notes": "535i (F10). 2258xx and 224Axx are absent from the community list entirely. Enhanced Mode-22 reads in the 58xx block on the 7DF functional broadcast decode byte 0 only; a full u16 read there ingests NAK frames. That constraint comes from obd-gauge-cluster's profile and matters for anyone decoding 2258xx from a broadcast. 225817 and 2258EB were oil-temperature candidates in the 58xx block and are byte-identical to each other on 99.51% of 1,427 logged rows -- one signal under two identifiers, which is what makes them candidates rather than two findings. Horsepower on the dash is computed from 2258BA x 224517 x rpm; everything else shown there is standard Mode-01, not enhanced DIDs. OPEN: 2258F3 also reads 0x1A90 (6800) as a constant in this project's own drive logs, the same value as the rev limiter at 224A2E. Whether it is a mirror of the limiter, a second limit, or a coincidence is untested.",
   "anchors": [
     {
       "did": "224300",
@@ -146,5 +179,12 @@
       "reads": "1004 hPa at idle",
       "note": "boost setpoint"
     }
-  ]
+  ],
+  "addressing_detail": {
+    "7DF": "42 PIDs \u2014 the functional broadcast, where everything above was found",
+    "7E1": "13 PIDs \u2014 a second reachable module",
+    "7E0": "silent",
+    "7E2": "silent",
+    "note": "settled by the ECUs' own supported-PID bitmaps rather than by guessing headers"
+  }
 }
