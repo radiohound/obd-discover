@@ -1100,3 +1100,40 @@ class FocusedLogTest {
             src("Capture.kt").contains("if (focus.isNotEmpty()) emptyList() else discover.logPlanAll"))
     }
 }
+
+/**
+ * A capture records the state the car was in.
+ *
+ * Without it a capture cannot be compared with anyone else's, and a constant cannot be told
+ * from a field nothing has moved. 74% of this project's BMW identifiers are constant across
+ * every capture taken — and every one was taken in the same state.
+ */
+class CaptureStateTest {
+    private fun src(n: String) =
+        java.io.File("src/main/java/com/redundo/obddiscover/$n").readText()
+
+    @Test fun bothMapWritersRecordTheState() {
+        assertTrue("the CAN map must record it",
+            src("Discover.kt").contains("\\\"state\\\": \\\"\${Session.captureState}"))
+        assertTrue("the non-CAN map must record it",
+            src("Capture.kt").contains("o.put(\"state\", Session.captureState)"))
+    }
+
+    @Test fun theStatesIncludeTheDiscriminatingOnes() {
+        val s = src("Session.kt")
+        // The cold soak is the one that splits temperatures from pressures from counters,
+        // and revving in neutral is the only way to separate engine-side from road-side.
+        for (needed in listOf("key on, engine off (cold)", "cold start, warming up",
+                              "stationary stimulus", "driving", "shutdown / re-key")) {
+            assertTrue("the state list must offer \"$needed\"", s.contains(needed))
+        }
+    }
+
+    @Test fun theDefaultIsUnspecifiedRatherThanAGuess() {
+        // Defaulting to "driving" would silently mislabel every capture somebody forgot.
+        assertTrue("default must be the first entry, unspecified",
+            src("Session.kt").contains("var captureState by mutableStateOf(CAPTURE_STATES.first())"))
+        assertTrue("and that first entry must be unspecified",
+            src("Session.kt").contains("\"unspecified\","))
+    }
+}

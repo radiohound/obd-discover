@@ -905,6 +905,9 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     // is no way to tell a stale capture from a current one except by
                     // remembering, and nobody remembers.
                     out.write("\"build\": \"${BuildTag.ID}\",\n")
+                    // The condition the car was in. Without it a capture cannot be compared
+                    // with anyone else's, and a constant cannot be told from an untouched field.
+                    out.write("\"state\": \"${Session.captureState}\",\n")
                     out.write("\"wmi\": \"$wmi\",\n")
                     // Per-car key, not the VIN. See Discover.vinKey.
                     out.write("\"vin_key\": \"$vinKey\",\n")

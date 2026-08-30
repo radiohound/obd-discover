@@ -693,6 +693,7 @@ class CaptureRunner(
                     if (stdPids.size > was) {
                         o.put("mode01", org.json.JSONArray(stdPids))
                         o.put("build", BuildTag.ID)
+            o.put("state", Session.captureState)
                         file.writeText(o.toString())
                         now = stdPids.size
                         ble.log("cached map updated: $now Mode-01 PIDs")

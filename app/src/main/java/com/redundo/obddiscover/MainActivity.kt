@@ -6,6 +6,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -473,6 +476,33 @@ class MainActivity : ComponentActivity() {
                                 color = if (cap.coverage.contains("⚠")) Color(0xFFE65100)
                                         else Color(0xFF2E7D32))
                         }
+                        // WHICH STATE THE CAR IS IN. One tap, and it makes this capture
+                        // comparable with anyone else's of the same model -- a field that
+                        // is constant in two warm drives may just be one nothing has moved.
+                        Text("Vehicle state", fontSize = 13.sp)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            for (st in Session.CAPTURE_STATES) {
+                                val on = Session.captureState == st
+                                Text(
+                                    st,
+                                    fontSize = 11.sp,
+                                    color = if (on) Color.White else Color(0xFF444444),
+                                    modifier = Modifier
+                                        .padding(vertical = 2.dp)
+                                        .background(
+                                            if (on) Color(0xFF1565C0) else Color(0xFFE0E0E0),
+                                            RoundedCornerShape(12.dp))
+                                        .clickable { Session.captureState = st }
+                                        .padding(horizontal = 10.dp, vertical = 5.dp))
+                            }
+                        }
+                        Text(
+                            "Pins a whole class of fields at once. At a cold soak with the " +
+                            "ignition on, every temperature in the car reads the same number " +
+                            "and every gauge pressure reads zero — which no amount of driving " +
+                            "tells you.",
+                            fontSize = 11.sp, color = Color(0xFF555555))
+
                         // Only offered when this vehicle actually has named signals to
                         // focus on -- an empty focus would silently log nothing.
                         val known = VehicleId.contributedSignals(

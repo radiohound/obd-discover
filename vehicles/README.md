@@ -162,6 +162,51 @@ four — reports what the incoming run missed and keeps everything:
 
 which is the point: a short retest can only ADD.
 
+## Identifying a field: state, not correlation
+
+Correlating a drive log against the nine logged anchors can only find things that resemble
+those nine. Every signal identified in this project so far was pinned a different way — by
+what a value read in a **known state**. Oil pressure was settled because it read atmospheric
+with the engine stopped. The LSU ceramic temperature because 780 °C is where a heated
+wideband element sits. The operating-hours counter because 4,424 hours against 142,934 miles
+is 32 mph.
+
+A state costs nothing to arrange and discriminates a whole class at once. **At a cold soak
+with the ignition on, every temperature sensor in the car reads the same number, every
+absolute pressure reads barometric, and every gauge pressure reads zero.**
+
+So tag each capture with the state the car was in — one tap in the app — and use
+`tools/pivot_states.py` to read identifiers by their signature across states:
+
+```bash
+tools/pivot_states.py <captures-dir> --vehicle WBA --changed-only
+```
+
+| signature across states | reads as |
+| :--- | :--- |
+| ambient when cold, climbs fast, flat with road speed | coolant |
+| ambient when cold, climbs slowly, lags coolant | oil |
+| ~1013 mbar at rest, rises with load | absolute manifold pressure |
+| 0 at rest, rises with load | gauge boost |
+| moves when revved in neutral, not when rolling | engine-side, not road-side |
+| survives a key cycle | an accumulator, not a live value |
+
+The states worth capturing, in order of what they buy for what they cost:
+
+1. **key on, engine off (cold)** — 2 minutes, and the most discriminating of all
+2. **cold start, warming up** — separates coolant from oil from intake by their time constants
+3. **warm idle** — a baseline, and where electrical load shows
+4. **stationary stimulus** — revving in neutral separates engine-side from road-side, which no drive can
+5. **driving** — boost, gear, road speed
+6. **shutdown / re-key** — accumulators versus values that reset
+
+**A "constant" is usually just a field nothing has moved yet.** 74% of this project's BMW
+identifiers are constant across every capture taken — and every one of those captures was
+made in the same state: warm engine, gentle driving.
+
+Labelling also makes captures **compose**. Two people's cold soaks on the same model confirm
+each other; two warm drives cannot, because a field constant in both may simply be untouched.
+
 ## The full identifier list
 
 `blocks` are 256-wide ranges, so seventeen of them stand in for hundreds of real

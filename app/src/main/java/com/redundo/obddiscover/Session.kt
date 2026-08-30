@@ -73,6 +73,36 @@ object Session {
     var focusOnKnownSignals by mutableStateOf(false)
 
     /**
+     * WHICH STATE THE CAR WAS IN when a capture was taken.
+     *
+     * Identification by correlation can only ever find the nine things already logged as
+     * anchors. Identification by STATE scales, because a known condition pins a whole class
+     * at once: at a cold soak with the ignition on, every temperature sensor in the car
+     * reads the same number, every absolute pressure reads barometric and every gauge
+     * pressure reads zero. One state, taken in a driveway, splits the address space before
+     * any driving happens.
+     *
+     * It also makes captures COMPOSE. Two people's cold soaks on the same model confirm
+     * each other; two warm drives cannot, because a field that is constant in both may
+     * simply be one that nothing has moved yet. 74% of this project's BMW identifiers are
+     * constant across every capture so far -- and every one of those captures was taken in
+     * the same state.
+     *
+     * Deliberately one tag with a default, not a wizard. Somebody who picks "driving" once
+     * has still made their contribution more useful than an unlabelled one.
+     */
+    val CAPTURE_STATES = listOf(
+        "unspecified",
+        "key on, engine off (cold)",
+        "cold start, warming up",
+        "warm idle",
+        "stationary stimulus",
+        "driving",
+        "shutdown / re-key",
+    )
+    var captureState by mutableStateOf(CAPTURE_STATES.first())
+
+    /**
      * The (header, requests) actually being logged right now.
      *
      * Set by CaptureRunner whichever way the plan was obtained -- freshly discovered OR
