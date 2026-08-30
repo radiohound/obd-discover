@@ -88,15 +88,47 @@
       "confidence": "ground-truth"
     },
     {
+      "did": "224402",
+      "header": "7DF",
+      "name": "oil temperature",
+      "unit": "degC",
+      "scale": 0.75,
+      "offset": -48,
+      "confidence": "inferred",
+      "verified": "u16 big-endian, value*0.75-48. Tracks coolant closely on a real log (r=0.9896 at zero lag), which confirms it is a temperature on the engine but not by itself that it is the OIL temperature.",
+      "source": "decode from obd-gauge-cluster's curated F10 profile (src/vehicles/bmw_f10_535i.cpp, MIT); the identifier is in this project's own sweep on 7DF"
+    },
+    {
+      "did": "224517",
+      "header": "7DF",
+      "name": "reference torque",
+      "unit": "Nm",
+      "scale": 0.1,
+      "confidence": "inferred",
+      "verified": "0.1 Nm per count, the live baseline 2258BA is a percentage of. Around 3989 counts on this engine.",
+      "source": "decode from obd-gauge-cluster's curated F10 profile (src/vehicles/bmw_f10_535i.cpp, MIT); the identifier is in this project's own sweep on 7DF"
+    },
+    {
       "did": "22586F",
       "header": "7DF",
-      "name": "intake manifold absolute pressure",
-      "unit": "kPa",
+      "name": "oil pressure",
+      "unit": "mbar absolute",
+      "scale": 1,
       "confidence": "inferred",
-      "verified": "reads 03E8-0410 at key-on with the engine off, which is 100-104 if the raw value is tenths of a kPa -- atmospheric, as an absolute MAP sensor should read. Identity is solid on that reasoning; the SCALE is not: an earlier decode came out about 15 psi high, consistent with treating it as gauge rather than absolute, or with the wrong divisor. Needs a running correlation against load or RPM to pin the scale.",
-      "source": "identified in a separate obd_scan session; the identifier itself appears in this project's own sweep, on 7DF in the 2258 block"
+      "verified": "ABSOLUTE, so barometric must be subtracted for gauge pressure. Reads 03E8-0410 with the engine off, which is 1000-1040 mbar -- atmospheric, which is what oil pressure at rest should be. That also explains a previous decode coming out about 15 psi high: skipping the barometric correction adds one atmosphere, 14.7 psi. Recorded earlier in this project as a MAP sensor, which was wrong.",
+      "source": "decode from obd-gauge-cluster's curated F10 profile (src/vehicles/bmw_f10_535i.cpp, MIT); the identifier is in this project's own sweep on 7DF"
+    },
+    {
+      "did": "2258BA",
+      "header": "7DF",
+      "name": "crank torque",
+      "unit": "Nm",
+      "scale": 0.1,
+      "confidence": "inferred",
+      "verified": "0.1 Nm per count, u16. Expressed as a percentage against 224517, the live reference torque, rather than read as an absolute.",
+      "source": "decode from obd-gauge-cluster's curated F10 profile (src/vehicles/bmw_f10_535i.cpp, MIT); the identifier is in this project's own sweep on 7DF"
     }
   ],
   "source": "obd-discover, 4 on-car capture(s) 2026-08; Mode-01 support scanned 2026-08-29",
-  "notes": "535i (F10). 2258xx and 224Axx are absent from the community list entirely."
+  "notes": "535i (F10). 2258xx and 224Axx are absent from the community list entirely. Enhanced Mode-22 reads in the 58xx block on the 7DF functional broadcast decode byte 0 only; a full u16 read there ingests NAK frames. That constraint comes from obd-gauge-cluster's profile and matters for anyone decoding 2258xx from a broadcast."
 }
