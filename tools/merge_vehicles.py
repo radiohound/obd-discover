@@ -146,6 +146,25 @@ def main(out_path):
                   f"{len(states)} vehicle states ({', '.join(sorted(states))}); "
                   f"identifiers in it are not all answers to the same question")
 
+    # IDENTIFIERS THE RECORD IS STILL ASKING ABOUT. open_questions is prose, but it names
+    # its subjects inline -- "224A4B needs a DENSE log", "2258BA wants MAF-derived power" --
+    # so the DIDs come out with a regex and no schema change. They ship because the focused
+    # log needs them: the point of narrowing a log is resolution on what is UNRESOLVED, and
+    # a list of named signals is by definition the resolved half.
+    for p in sorted(files):
+        try:
+            r = json.load(open(p))
+        except Exception:
+            continue
+        key = f"{r.get('make','')}|{r.get('model','')}"
+        if key not in by_model:
+            continue
+        oq = set()
+        for q in (r.get("open_questions") or []):
+            oq.update(d.upper() for d in re.findall(r"\b22[0-9A-Fa-f]{4}\b", str(q)))
+        if oq:
+            by_model[key]["oq"] = sorted(oq)
+
     if errors:
         print(f"vehicles: {errors} problem(s); refusing to write {out_path}", file=sys.stderr)
         return 1
@@ -179,7 +198,7 @@ def main(out_path):
                              (("hdr", sorted(v["hdr"])), ("blk", sorted(v["blk"])),
                               ("pid", sorted(v["pid"])), ("m21", sorted(v["m21"])),
                               ("m22", v["m22"]), ("sig", v["sig"]),
-                              ("ids", v.get("ids"))) if vv}
+                              ("oq", v.get("oq")), ("ids", v.get("ids"))) if vv}
                          for k, v in sorted(by_model.items())}}
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w") as f:

@@ -323,6 +323,28 @@ object VehicleId {
      * Shipped packed: suffixes only, concatenated, grouped by header, the 22 implied. All
      * six current records are 15.5 KB. See tools/merge_vehicles.py.
      */
+    /**
+     * Identifiers this vehicle's record is still asking about.
+     *
+     * A focused log exists for resolution, and the named signals are by definition the half
+     * already resolved -- so focusing on them alone measures what is settled and skips what
+     * is not. The open questions name their own subjects in prose ("224A4B needs a DENSE
+     * log", "2258BA wants MAF-derived power as its anchor") and merge_vehicles lifts the
+     * identifiers out of them, so the thing being asked is the thing being sampled.
+     */
+    fun openQuestionDids(make: String, model: String = ""): List<String> {
+        val loc = contributed?.optJSONObject("locations") ?: return emptyList()
+        val out = LinkedHashSet<String>()
+        for (k in loc.keys()) {
+            if (!k.substringBefore('|').equals(make, ignoreCase = true)) continue
+            if (model.isNotEmpty() && k.contains('|') &&
+                !k.substringAfter('|').equals(model, ignoreCase = true)) continue
+            val a = loc.optJSONObject(k)?.optJSONArray("oq") ?: continue
+            for (i in 0 until a.length()) a.optString(i).takeIf { it.isNotEmpty() }?.let { out.add(it) }
+        }
+        return out.toList()
+    }
+
     fun contributedRequests(make: String, model: String = ""): List<Pair<String, String>> {
         // MATCHED WITHOUT REGARD TO CASE, like every other model lookup here.
         //
@@ -367,7 +389,7 @@ object VehicleId {
         val out = ArrayList<Hint>()
         for (k in loc.keys()) {
             val km = k.substringBefore('|')
-            if (km != make) continue
+            if (!km.equals(make, ignoreCase = true)) continue
             // An exact model wins; with no model, every record for the make contributes.
             if (model.isNotEmpty() && k.contains('|') &&
                 !k.substringAfter('|').equals(model, ignoreCase = true)) continue

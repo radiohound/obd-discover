@@ -1086,9 +1086,15 @@ class CaptureRunner(
         // questions about, when asked. Resolution is the point: the same warm-up that gives
         // 17 samples across 577 columns gives hundreds across twenty, and a signal that
         // needs 30 samples to be called `correlated` cannot get them any other way.
+        // NAMED SIGNALS *AND* OPEN QUESTIONS, which is what the comment above has always
+        // said and what the code did not do. Focusing on the named half alone samples the
+        // part already answered at high resolution and leaves the unanswered part out
+        // entirely -- the opposite of the point. An open question names its own subject, so
+        // the record decides what a focused log measures.
         val focus = if (!Session.focusOnKnownSignals) emptyList() else
-            VehicleId.contributedSignals(info?.make ?: "", modelClean)
-                .map { it.did }.filter { it.isNotEmpty() }.distinct()
+            (VehicleId.contributedSignals(info?.make ?: "", modelClean).map { it.did } +
+                VehicleId.openQuestionDids(info?.make ?: "", modelClean))
+                .filter { it.isNotEmpty() }.distinct()
         val plan = if (focus.isEmpty()) planIn else planIn.first to focus
         if (focus.isNotEmpty()) {
             ble.log("focused log: ${focus.size} identifiers instead of ${planIn.second.size}")

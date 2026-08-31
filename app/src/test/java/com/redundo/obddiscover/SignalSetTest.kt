@@ -480,12 +480,26 @@ class ModelLookupCaseTest {
             !src.contains("k.substringBefore('|') != make"))
     }
 
-    /** All three model-keyed lookups, not just the one that was reported. */
-    @Test fun everyModelKeyedLookupIgnoresCase() {
-        assertEquals("three lookups compare a model", 3,
-            src.split("equals(model, ignoreCase = true)").size - 1)
-        assertEquals("two compare a make", 2,
-            src.split("equals(make, ignoreCase = true)").size - 1)
+    /**
+     * The four lookups that scan the locations keys must all ignore case.
+     *
+     * Two earlier versions of this test were wrong in opposite directions -- one pinned a
+     * count of three and broke when a fourth was added, the other counted every function
+     * taking a model and demanded the comparison of nine that do not scan keys at all.
+     * Named explicitly, because that is what the property actually is.
+     */
+    @Test fun everyKeyScanningLookupIgnoresCase() {
+        for (fn in listOf("contributedSignals", "openQuestionDids",
+                          "contributedRequests", "contributedHints")) {
+            val i = src.indexOf("fun $fn(")
+            assertTrue("$fn must exist", i > 0)
+            val end = src.indexOf("\n    fun ", i + 1).let { if (it < 0) src.length else it }
+            val body = src.substring(i, end)
+            assertTrue("$fn must compare the make without regard to case",
+                body.contains("equals(make, ignoreCase = true)"))
+            assertTrue("$fn must compare the model without regard to case",
+                body.contains("equals(model, ignoreCase = true)"))
+        }
     }
 
     /** The one that was already right stays right. */
