@@ -42,7 +42,7 @@
   "22F1",
   "22FD"
  ],
- "identifier_count": 572,
+ "identifier_count": 705,
  "map": "5-Series.map.json",
  "pids": {
   "0101": "monitor status since DTCs cleared",
@@ -187,7 +187,7 @@
   {
    "did": "224A4B",
    "header": "7DF",
-   "name": "unidentified \u2014 not engine load",
+   "name": "unidentified — not engine load",
    "unit": "",
    "confidence": "guess",
    "verified": "Recorded here as engine load and that is probably wrong. The published map runs 4A49, 4A4A, GAP, 4A4C-4A4F as 'output ignition angle 0-5' -- 4A4B is a hole in the middle of a six-cylinder set. This project's own measurement already declined it: r=-0.19 against the legislated load PID. Worth testing as s16 x 0.1 degrees KW against 010E.",
@@ -321,8 +321,8 @@
    "source": "named in a community-published N55 DME map (thesecretingredient.neocities.org/bmw/dme/n55, anonymous, no stated derivation); the identifier and the values are from this project's own sweeps"
   }
  ],
- "source": "obd-discover, 4 on-car capture(s) 2026-08; Mode-01 support scanned 2026-08-29",
- "notes": "535i (F10). An earlier note here claimed 2258xx and 224Axx were absent from the community lists; that was WRONG -- they are the two best-covered blocks in the published N55 map, at 125 of 227 and 51 of 131. What survives is narrower and still true: 2258BA, 224517, 224303 and 224A2E appear in none of the N55, S55, B58, N63 or B48 maps. Enhanced Mode-22 reads in the 58xx block on the 7DF functional broadcast decode byte 0 only; a full u16 read there ingests NAK frames. That constraint comes from obd-gauge-cluster's profile and matters for anyone decoding 2258xx from a broadcast. 225817 and 2258EB were oil-temperature candidates in the 58xx block and are byte-identical to each other on 99.51% of 1,427 logged rows -- one signal under two identifiers, which is what makes them candidates rather than two findings. Horsepower on the dash is computed from 2258BA x 224517 x rpm; everything else shown there is standard Mode-01, not enhanced DIDs. 2258F3 turned out to be the low-pressure fuel rail, not a second limiter. NINETEEN identifiers this car answers have no published definition in any of the six DME maps that source holds -- N55, S55, B58, N63, B48 and S63, all six fetched and grepped 2026-08-30 rather than read: 221000, 22100A, 22100E, 221600, 221700, 221701, 221721, 222502, 222503, 222508, 223000, 223001, 224001, 224007, 224044, 224047, 22404D, 22409A and 225000. The twentieth, 224002, IS published -- B48 alone lists it as \"Status switching states 1\", a BITFIELD in bits, multiplier 1 offset 0. B48 is the only one of the six whose range starts below 0x4201 (it starts at 0x4002), which is why it is the only map that could hold it. The others span 0x4201 upward, so the low blocks 2210 through 2240 sit below every window but B48's. 221700, the odometer, remains among the unpublished: it rests on a dashboard reading and a 17-minute drive with nothing to corroborate it. Anything established in these blocks is new rather than confirmed.",
+ "source": "obd-discover, on-car captures 2026-08-29 to 2026-08-31; Mode-01 support scanned 2026-08-29. Triage and broadcast-reach measured 2026-08-30/31.",
+ "notes": "535i (F10). An earlier note here claimed 2258xx and 224Axx were absent from the community lists; that was WRONG -- they are the two best-covered blocks in the published N55 map, at 125 of 227 and 51 of 131. What survives is narrower and still true: 2258BA, 224517, 224303 and 224A2E appear in none of the N55, S55, B58, N63 or B48 maps. Enhanced Mode-22 reads in the 58xx block on the 7DF functional broadcast decode byte 0 only; a full u16 read there ingests NAK frames. That constraint comes from obd-gauge-cluster's profile and matters for anyone decoding 2258xx from a broadcast. 225817 and 2258EB were oil-temperature candidates in the 58xx block and are byte-identical to each other on 99.51% of 1,427 logged rows -- one signal under two identifiers, which is what makes them candidates rather than two findings. Horsepower on the dash is computed from 2258BA x 224517 x rpm; everything else shown there is standard Mode-01, not enhanced DIDs. 2258F3 turned out to be the low-pressure fuel rail, not a second limiter. NINETEEN identifiers this car answers have no published definition in any of the six DME maps that source holds -- N55, S55, B58, N63, B48 and S63, all six fetched and grepped 2026-08-30 rather than read: 221000, 22100A, 22100E, 221600, 221700, 221701, 221721, 222502, 222503, 222508, 223000, 223001, 224001, 224007, 224044, 224047, 22404D, 22409A and 225000. The twentieth, 224002, IS published -- B48 alone lists it as \"Status switching states 1\", a BITFIELD in bits, multiplier 1 offset 0. B48 is the only one of the six whose range starts below 0x4201 (it starts at 0x4002), which is why it is the only map that could hold it. The others span 0x4201 upward, so the low blocks 2210 through 2240 sit below every window but B48's. 221700, the odometer, remains among the unpublished: it rests on a dashboard reading and a 17-minute drive with nothing to corroborate it. Anything established in these blocks is new rather than confirmed.\n\nIDENTIFIER COUNT CORRECTED. This record said 572 while its own map file, its own stats block and every capture said 705 -- a number left behind by an update that touched everything except the field a reader looks at first.",
  "anchors": [
   {
    "did": "224300",
@@ -336,8 +336,8 @@
   }
  ],
  "addressing_detail": {
-  "7DF": "42 PIDs \u2014 the functional broadcast, where everything above was found",
-  "7E1": "13 PIDs \u2014 a second reachable module",
+  "7DF": "42 PIDs — the functional broadcast, where everything above was found",
+  "7E1": "13 PIDs — a second reachable module",
   "7E0": "silent",
   "7E2": "silent",
   "note": "settled by the ECUs' own supported-PID bitmaps rather than by guessing headers"
@@ -358,5 +358,25 @@
   "probes": 1550,
   "identifiers_found": 705,
   "blocks": 24
+ },
+ "triage": {
+  "classified": 705,
+  "dynamic": 339,
+  "static": 181,
+  "unpopulated": 185,
+  "drive_columns": 414,
+  "method": "Each identifier probed twice while stationary at warm idle. UNPOPULATED reads all zeros or all Fs on both probes -- answering, carrying nothing. A duplicate reads identically to another on both probes. Both are dropped from the drive log and neither is dropped from this record. STATIC is kept: coolant at equilibrium and a stopped car hold still too.",
+  "limit": "Measured stationary, and that is the limit of it. An identifier blank at idle and populated under load reads as UNPOPULATED here."
+ },
+ "broadcast_reach": {
+  "sampled": 24,
+  "answered": {
+   "7E1": 3
+  },
+  "measured": "2026-08-31",
+  "question": "Do identifiers found on the 7DF functional broadcast also answer at a physical address? Every identifier this project has found on a broadcast was found there and nowhere else -- but that is an artefact of the sweep, not a finding: a block discovered on 7DF is swept on 7DF, so they had never once been asked physically.",
+  "result": "3 of 24, spread across the block space rather than taken from the front. So on this car the broadcast is largely load-bearing: 21 of 24 are not reachable at 7E1, and blind enumeration cannot simply move to physical addressing.",
+  "scope": "One car, and 7E1 is its only live physical header -- 7E0 never answered. Which three answered was not recorded, so whether the reachable fraction is one coherent block or scattered is unknown.",
+  "contradicted_by": "A 2025 Ioniq 5 points the other way. OBDb documents 14 requests at 7E4, 7E5 and 7E2; that car answered every one of them on 7DF, and its physical headers were never swept at all. Two vehicles, opposite results, no conclusion -- recorded so this 3-of-24 is not read as general."
  }
 }
