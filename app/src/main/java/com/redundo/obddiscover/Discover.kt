@@ -239,6 +239,20 @@ object Discover {
      * Deliberately never 7E3-7E7, which can reach ADAS modules on some platforms.
      */
     val HEADERS_11BIT = listOf("7DF", "7E0", "7E1", "7E2")
+
+    /**
+     * The functional broadcasts. Every module on the bus receives these.
+     *
+     * A physically addressed request reaches one ECU. A broadcast reaches all of them --
+     * including immobiliser and smart-key modules, which are built to react defensively to
+     * being probed, because probing is how cars get stolen. Blind enumeration on a broadcast
+     * is therefore a categorically different act from blind enumeration at 7E0, and this
+     * project has been treating the two as interchangeable.
+     */
+    val BROADCAST_HEADERS = setOf("7DF", "DB33F1")
+
+    /** How many broadcast-found identifiers to re-ask physically. See broadcastReach. */
+    const val REACH_SAMPLE = 24
     val HEADERS_29BIT = listOf("DB33F1", "DA10F1", "DA18F1", "DA1AF1", "DA28F1")
 
     const val SERVICE = 0x22
@@ -398,6 +412,9 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
     private var probesRecon = 0
     private var probesSweep = 0
     private var probesTriage = 0
+    private var probesReach = 0
+    private val reach = LinkedHashMap<String, Int>()
+    private var reachSampled = 0
 
     /**
      * Running totals that only ever go UP.
@@ -835,6 +852,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
         stopFlag = false; running = true; probes = 0
         blocksFound = 0; didsFound = 0; pct = 0; phase = ""; eta = ""
         probesKnown = 0; probesRecon = 0; probesSweep = 0; probesTriage = 0
+        probesReach = 0; reach.clear(); reachSampled = 0
         nrcByHeader.clear(); refusals.clear(); timeouts = 0; retries = 0; consecutiveDead = 0; curHeader = ""
         stopping = false; aborted = false; matchedModels = emptyList(); allHits = emptyList()
         runStartMs = System.currentTimeMillis()
@@ -1365,6 +1383,51 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 voltEnd = readVolts()
                 if (voltEnd.isNotEmpty()) ble.log("battery: ${voltEnd}V at end")
 
+                // --- can the broadcast data be reached physically? ------------------
+                //
+                // THE QUESTION THIS ANSWERS. Every identifier this project has found on a
+                // broadcast was found there and nowhere else -- but that is an artefact of
+                // how the sweep works, not a finding: a block discovered on 7DF is swept on
+                // 7DF, so those identifiers have never once been asked at a physical
+                // address. Nobody knows whether they would answer.
+                //
+                // It matters because the broadcast is the exposure. If the same data is
+                // reachable at 7E0 or 7E1, blind enumeration can move off the broadcast
+                // entirely and the security modules stop hearing it -- which is a structural
+                // fix rather than a mitigation. If it is not reachable, the broadcast is
+                // load-bearing and the answer has to be pacing instead.
+                //
+                // Twenty-four identifiers against each live physical header. On this BMW
+                // that is 24 probes; the whole question costs five seconds.
+                val physical = liveHeaders.filter { it !in Discover.BROADCAST_HEADERS }
+                val fromBroadcast = found.values
+                    .filter { it.header in Discover.BROADCAST_HEADERS }
+                    .flatMap { b -> b.fullHits.map { it.first } }
+                if (physical.isNotEmpty() && fromBroadcast.isNotEmpty() && !stopFlag) {
+                    phase = "reach"
+                    // Spread across the block space rather than taking the first N, which
+                    // would sample one block and call it the vehicle.
+                    val step = maxOf(1, fromBroadcast.size / Discover.REACH_SAMPLE)
+                    val sample = fromBroadcast.filterIndexed { i, _ -> i % step == 0 }
+                        .take(Discover.REACH_SAMPLE)
+                    for (h in physical) {
+                        if (stopFlag || outOfTime()) break
+                        selectHeader(h)
+                        var answered = 0
+                        for (req in sample) {
+                            if (stopFlag) break
+                            val (present, payload, _) = ask(req)
+                            probes++; probesReach++
+                            if (present && payload != null) answered++
+                        }
+                        reach[h] = answered
+                        progress = "reach $h  $answered/${sample.size} answered physically"
+                    }
+                    reachSampled = sample.size
+                    ble.log("broadcast reach: ${reachSampled} identifiers re-asked at " +
+                        physical.joinToString(" ") { "$it=${reach[it] ?: 0}" })
+                }
+
                 // Stamped once, before writing, so the filename and finished_at agree
                 // rather than differing by however long serialising takes.
                 val finishedMs = System.currentTimeMillis()
@@ -1417,7 +1480,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     out.write("\"known_requests_sent\": $probesKnown},\n")
                     out.write("\"probe_breakdown\": {\"known\": $probesKnown, ")
                     out.write("\"recon\": $probesRecon, \"sweep\": $probesSweep, " +
-                        "\"triage\": $probesTriage, ")
+                        "\"triage\": $probesTriage, \"reach\": $probesReach, ")
                     out.write("\"timeouts\": $timeouts, \"retries\": $retries},\n")
                     // PHASE 1: what this vehicle says when it declines. Recorded only.
                     out.write("\"refused_but_present\": {")
@@ -1455,6 +1518,11 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     // and a day of scanning can flatten a battery -- which on an EV looks
                     // exactly like the key having stopped working.
                     out.write("\"battery_v\": {\"start\": \"$voltStart\", \"end\": \"$voltEnd\"},\n")
+                    // Whether broadcast-discovered identifiers answer at a physical
+                    // address. Recorded per header so the answer accumulates across vehicles
+                    // rather than resting on one car.
+                    out.write("\"broadcast_reach\": {\"sampled\": $reachSampled, \"answered\": {" +
+                        reach.entries.joinToString(", ") { "\"${it.key}\": ${it.value}" } + "}},\n")
                     out.write("\"paused\": $paused,\n")
                     out.write("\"recon_done\": $reconComplete,\n")
                     out.write("\"recon_headers\": [${reconDoneHdrs.joinToString(", ") { "\"$it\"" }}],\n")

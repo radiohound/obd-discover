@@ -1894,3 +1894,63 @@ class RefusalsCountWhereverTheyArriveTest {
         assertTrue(src.contains("if (nak) speaksMode22.add(h)"))
     }
 }
+
+/**
+ * Can broadcast-discovered data be reached at a physical address? (R2)
+ *
+ * The broadcast is the exposure: every module receives it, including the immobiliser and
+ * smart-key modules that are built to react defensively to probing. If the same identifiers
+ * answer at 7E0 or 7E1, blind enumeration moves off the broadcast entirely and those modules
+ * stop hearing it. Nobody has ever asked, because a block found on 7DF is swept on 7DF.
+ */
+class BroadcastReachTest {
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Discover.kt").readText()
+
+    /** Both broadcasts, 11-bit and 29-bit. Naming only 7DF would miss every GM truck. */
+    @Test fun bothBroadcastsAreNamed() {
+        assertTrue(src.contains("""val BROADCAST_HEADERS = setOf("7DF", "DB33F1")"""))
+    }
+
+    /** It asks identifiers found on a broadcast, at headers that are not broadcasts. */
+    @Test fun itReAsksBroadcastFindingsPhysically() {
+        assertTrue("physical headers are the non-broadcast live ones",
+            src.contains("liveHeaders.filter { it !in Discover.BROADCAST_HEADERS }"))
+        assertTrue("the sample comes from broadcast blocks",
+            src.contains("it.header in Discover.BROADCAST_HEADERS"))
+    }
+
+    /**
+     * Spread across the block space. Taking the first N samples one block and calls it the
+     * vehicle -- and blocks are contiguous, so the first N are all neighbours.
+     */
+    @Test fun theSampleIsSpreadNotTakenFromTheFront() {
+        assertTrue(src.contains("fromBroadcast.size / Discover.REACH_SAMPLE"))
+        assertTrue(src.contains("filterIndexed { i, _ -> i % step == 0 }"))
+    }
+
+    /** Bounded and interruptible like every other pass. */
+    @Test fun itIsBoundedAndRespectsTheSessionClock() {
+        assertEquals(24, Discover.REACH_SAMPLE)
+        val i = src.indexOf("phase = \"reach\"")
+        assertTrue("the pass must exist", i > 0)
+        assertTrue("and stop with the session",
+            src.substring(i, i + 700).contains("if (stopFlag || outOfTime()) break"))
+    }
+
+    /** The answer is recorded per header, so it accumulates across vehicles. */
+    @Test fun theResultReachesTheCapture() {
+        assertTrue(src.contains("\\\"broadcast_reach\\\""))
+        assertTrue("per header", src.contains("\\\"answered\\\""))
+        assertTrue("with the sample size, or a count means nothing",
+            src.contains("\\\"sampled\\\": ${'$'}reachSampled"))
+    }
+
+    /** Its probes are counted, or the run's totals lie. */
+    @Test fun itsProbesAreCounted() {
+        assertTrue(src.contains("probesReach++"))
+        assertTrue(src.contains("\\\"reach\\\": ${'$'}probesReach"))
+    }
+}
