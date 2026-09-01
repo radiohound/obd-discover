@@ -2116,3 +2116,35 @@ class DropSetReconstructionTest {
             cap.contains("""if (k == PreDriveTriage.Kind.MOVED.name) null else first"""))
     }
 }
+
+/**
+ * The reach pass must select headers the way everything else does.
+ *
+ * A bare ATSH is right until a plan carries a BMW extended header, and then it is a
+ * malformed command that answers nothing -- recorded as "0 of 24 answered", which is the
+ * reading that closes the question the wrong way and is never revisited, because the map
+ * counts as asked.
+ */
+class ReachHeaderSelectionTest {
+    private val cap = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+    private val reach = cap.substring(cap.indexOf("private fun reachStep"))
+        .let { it.substring(0, it.indexOf("\n    private fun ", 1)) }
+
+    @Test fun itUsesApplyHeaderNotABareAtsh() {
+        assertTrue("must go through applyHeader",
+            reach.contains("ext = Discover.applyHeader(ble, h, ext)"))
+        assertFalse("a bare ATSH cannot express an extended header",
+            reach.contains("""ble.cmd("ATSH"""))
+    }
+
+    /**
+     * And must hand the adapter back unfiltered. The drive runner starts from ext = false
+     * and will not clear a filter it did not set.
+     */
+    @Test fun itLeavesNoReceiveFilterStanding() {
+        assertTrue(reach.contains("""if (ext) { ble.cmd("ATCEA"); ble.cmd("ATCRA") }"""))
+    }
+}

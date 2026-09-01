@@ -1107,18 +1107,35 @@ class CaptureRunner(
         val sample = Discover.reachSample(fromBroadcast)
         if (physical.isEmpty() || sample.isEmpty() || capStop) return
         val answered = LinkedHashMap<String, Int>()
+        // applyHeader, not a bare ATSH, for the reason the drive runner gives: a plan may
+        // carry a BMW extended header like "6F1@12", where ATSH takes the CAN id and the
+        // target needs ATCEA/ATCRA beside it. Sending "ATSH6F1@12" is a malformed command,
+        // so every probe fails and the pass records 0 answered -- which is not "no data",
+        // it is the reading that says the broadcast is load-bearing and pacing is the only
+        // lever left. Wrong, written into the map, and never asked again because the map
+        // then counts as reached. This BMW would have passed on luck: 7DF and 7E1 carry no
+        // target.
+        var ext = false
         for (h in physical) {
             if (capStop) break
-            ble.cmd("ATSH$h")
+            ext = Discover.applyHeader(ble, h, ext)
             var n = 0
             for (req in sample) {
                 if (capStop) break
-                val (raw, ok) = ble.cmd(req, 4_000)
+                // The discovery default, not the 4 s used for Mode-09 reads. Every probe
+                // here is EXPECTED to go unanswered half the time -- that is the question --
+                // so the no-answer cost is what sizes the pass, and 4 s would make a
+                // negative result take a minute and a half instead of seconds.
+                val (raw, ok) = ble.cmd(req)
                 if (ok && Obd.payloadOf(req, raw) != null) n++
             }
             answered[h] = n
             status = "broadcast reach: $h answered $n of ${sample.size}"
         }
+        // Leave the adapter as it was found. The drive runner starts from `var ext = false`
+        // and will not clear a filter it did not set, so a receive filter left standing here
+        // blocks Mode-01 for the whole drive that follows.
+        if (ext) { ble.cmd("ATCEA"); ble.cmd("ATCRA") }
         if (answered.isEmpty()) return
         ble.log("broadcast reach: ${sample.size} identifiers re-asked at " +
             physical.joinToString(" ") { "$it=${answered[it] ?: 0}" })
