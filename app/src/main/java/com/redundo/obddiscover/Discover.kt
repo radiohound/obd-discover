@@ -1389,6 +1389,9 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 // proved, and once on everything recon turns up afterwards.
                 var swept = 0
                 var emptyRun = 0
+                // The blocks in the current empty run, so their verdicts can be taken back
+                // if the run turns out to be long enough to mean the vehicle went away.
+                val emptyRunBlocks = ArrayList<DiscoveredBlock>()
                 val swept0 = HashSet<String>()
                 fun sweepOne(b: DiscoveredBlock, denom: () -> Int, exact: Boolean) {
                     swept0.add(b.name)
@@ -1423,6 +1426,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     if (b.fullHits.size == hitsBefore) {
                         b.emptyRuns++
                         emptyRun++
+                        emptyRunBlocks.add(b)
                         // THREE, because a healthy capture has never produced one. Ten of
                         // twelve contain no empty block at all -- every block recon finds,
                         // the sweep finds data in, which follows from a block only entering
@@ -1434,18 +1438,43 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                         // 0 retries, because the DME was answering the whole time, just with
                         // conditionsNotCorrect instead of data. consecutiveDead counts dead
                         // probes and there were none, which is why nothing noticed.
-                        if (emptyRun >= 3 && warning.isEmpty()) {
+                        if (emptyRun >= 3) {
+                            // AND THE VERDICTS ARE TAKEN BACK, not merely reported. The
+                            // warning existed already and told the operator the car might
+                            // be gone; the bookkeeping then filed the results as facts
+                            // about the vehicle anyway. A block is closed forever at
+                            // emptyRuns >= 2, so two sessions interrupted the same way --
+                            // or one interrupted twice -- retire a block nobody ever really
+                            // asked. That is how the BMW's nine blocks were lost, and
+                            // nothing about the transport looked wrong while it happened.
+                            //
+                            // An empty sweep is only evidence if the vehicle was answering.
+                            // Three in a row says it was not, so every block in this run
+                            // goes back to unswept and is asked again next session. A block
+                            // that is genuinely empty still closes after two credible
+                            // sweeps; this only ever discards a verdict the run itself has
+                            // already called into question.
+                            // ONCE PER BLOCK. emptyRuns carries across sessions, so a
+                            // block already holding a legitimate empty verdict from an
+                            // earlier run would have that taken away too if a long stretch
+                            // rolled it back on every step. Cleared after undoing, so each
+                            // block in the run loses this session's increment and nothing
+                            // else; later blocks in the same run arrive alone and are
+                            // undone as they come.
+                            for (e in emptyRunBlocks) if (e.emptyRuns > 0) e.emptyRuns--
+                            emptyRunBlocks.clear()
+                            if (warning.isEmpty()) {
+                                ble.log("WARNING: $emptyRun blocks in a row answered " +
+                                    "nothing — discarding their empty verdicts")
+                                buzz(ctx, false)
+                            }
                             warning = "$emptyRun blocks in a row answered nothing — " +
-                                "is the vehicle still on?"
-                            ble.log("WARNING: $warning")
-                            buzz(ctx, false)
-                        } else if (emptyRun >= 3) {
-                            warning = "$emptyRun blocks in a row answered nothing — " +
-                                "is the vehicle still on?"
+                                "is the vehicle still on? (not counting them as empty)"
                         }
                     } else {
                         b.emptyRuns = 0
                         emptyRun = 0
+                        emptyRunBlocks.clear()
                         warning = ""
                     }
                     swept++

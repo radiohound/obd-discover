@@ -2462,3 +2462,84 @@ class AssetKeyTest {
         assertEquals("a make/model half compared with == rather than equals(ignoreCase)", 0, exact)
     }
 }
+
+/**
+ * An empty sweep is only evidence if the vehicle was answering.
+ *
+ * A block is closed forever at `emptyRuns >= 2` and never asked again. But "this block holds
+ * nothing" and "the car stopped answering" produce identical evidence — and the second has
+ * happened: a BMW lost nine blocks to a refuelling stop, with 0 timeouts and 0 retries the
+ * whole time, because the DME was answering perfectly with conditionsNotCorrect instead of
+ * data. Nothing about the transport looked wrong.
+ *
+ * The app already detected it — three empty blocks in a row raises the "is the vehicle still
+ * on?" warning. It told the operator the car might be gone and then filed the results as
+ * facts about the car anyway. This is that detection reaching the bookkeeping.
+ */
+class EmptyRunTest {
+    private val src = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Discover.kt").readText()
+
+    /** Simulates the bookkeeping, so the rule is tested rather than the wording. */
+    private fun run(pattern: String, prior: Int = 0): Map<Int, Int> {
+        val blocks = pattern.indices.associateWith { prior }.toMutableMap()
+        var emptyRun = 0
+        val inRun = ArrayList<Int>()
+        for ((i, c) in pattern.withIndex()) {
+            if (c == '.') {                       // empty
+                blocks[i] = blocks[i]!! + 1
+                emptyRun++; inRun.add(i)
+                if (emptyRun >= 3) {
+                    for (e in inRun) if (blocks[e]!! > 0) blocks[e] = blocks[e]!! - 1
+                    inRun.clear()
+                }
+            } else {                              // found data
+                blocks[i] = 0; emptyRun = 0; inRun.clear()
+            }
+        }
+        return blocks
+    }
+
+    /** One or two empty blocks are ordinary. They still count. */
+    @Test fun ashortEmptyStretchIsStillEvidence() {
+        assertEquals(mapOf(0 to 1), run("."))
+        assertEquals(mapOf(0 to 1, 1 to 1), run(".."))
+        // and a second such session closes them, which is the intended behaviour
+        assertEquals(mapOf(0 to 2, 1 to 2), run("..", prior = 1))
+    }
+
+    /** Three in a row means the vehicle went away. None of them counts. */
+    @Test fun aRunOfThreeDiscardsItsOwnVerdicts() {
+        assertEquals(mapOf(0 to 0, 1 to 0, 2 to 0), run("..."))
+    }
+
+    /** The BMW's nine, which were lost. Every one goes back to being unasked. */
+    @Test fun theNineBlocksTheRefuellingStopTook() {
+        assertEquals(List(9) { it to 0 }.toMap(), run("........."))
+    }
+
+    /**
+     * A block that was legitimately empty in an EARLIER session keeps that verdict. Only
+     * this session's increment is taken back — otherwise a long stretch would erode history
+     * it knows nothing about.
+     */
+    @Test fun anEarlierSessionsVerdictSurvives() {
+        assertEquals(List(9) { it to 1 }.toMap(), run(".........", prior = 1))
+    }
+
+    /** Data anywhere in the stretch resets it, and what follows is judged on its own. */
+    @Test fun dataBreaksTheRun() {
+        // two empty, data, two empty: neither pair reaches three, so both still count
+        assertEquals(mapOf(0 to 1, 1 to 1, 2 to 0, 3 to 1, 4 to 1), run("..x.."))
+    }
+
+    @Test fun theCodeDoesWhatTheSimulationDoes() {
+        assertTrue("verdicts are taken back",
+            src.contains("for (e in emptyRunBlocks) if (e.emptyRuns > 0) e.emptyRuns--"))
+        assertTrue("once per block", src.contains("emptyRunBlocks.clear()"))
+        assertTrue("and the operator is told that is what happened",
+            src.contains("(not counting them as empty)"))
+    }
+}
