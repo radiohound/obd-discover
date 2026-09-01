@@ -2310,3 +2310,79 @@ class PacingTest {
         assertTrue(src.contains("\\\"broadcast_probes\\\""))
     }
 }
+
+/**
+ * Trouble codes, read at both ends of a session.
+ *
+ * They were read once, before discovery, and the result was never written to the capture —
+ * so the one moment worth measuring, whether a session left anything behind, was the one
+ * moment nobody looked at. Eight captures of the Ioniq 5 that stopped recognising its keys
+ * carry no code record at all, and none can be recovered now.
+ */
+class TroubleCodeEndpointsTest {
+    private fun src(f: String) = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/$f").readText()
+
+    /** Mode 07 shares Mode 03's frame format; only the response byte differs. */
+    @Test fun pendingCodesDecodeWithTheSameParser() {
+        // 43 01 0301 -> P0301, the canonical misfire code.
+        assertEquals(listOf("P0301"), Dtc.parse("43 01 03 01").map { it.code })
+        // The same payload as a Mode 07 reply is pending, not stored.
+        assertEquals(listOf("P0301"), Dtc.parse("47 01 03 01", "47").map { it.code })
+    }
+
+    /** And matching the wrong prefix must return nothing rather than mis-decode. */
+    @Test fun theWrongReplyIsIgnoredNotMisread() {
+        assertEquals(emptyList<Dtc.Code>(), Dtc.parse("47 01 03 01"))
+        assertEquals(emptyList<Dtc.Code>(), Dtc.parse("43 01 03 01", "47"))
+    }
+
+    /** Every domain decodes, because the interesting one here is not powertrain. */
+    @Test fun theNetworkDomainDecodes() {
+        // U0140 — lost communication with the body control module. This is what a
+        // neighbouring module writes when one goes quiet, which is the event being watched
+        // for; the smart-key fault itself is a B-code this app structurally cannot read.
+        //
+        // 0xC140, not 0x0140: the top two bits carry the domain (00 P, 01 C, 10 B, 11 U)
+        // and the next two the first digit, so U0140 is 11 00 followed by 140.
+        val u = Dtc.parse("43 01 C1 40").first()
+        assertEquals("U0140", u.code)
+        assertEquals("Network", u.system)
+        // And the same 12 bits in the body domain, where a smart-key fault would live.
+        assertEquals("B0140", Dtc.parse("43 01 81 40").first().code)
+        assertEquals("Body", Dtc.parse("43 01 81 40").first().system)
+    }
+
+    /** Both ends are read, and both reach the capture. */
+    @Test fun bothEndpointsAreRecorded() {
+        val d = src("Discover.kt")
+        assertTrue("stored and pending, at the end",
+            d.contains("""listOf("03" to "43", "07" to "47")"""))
+        assertTrue("the opening state comes from the capture runner", d.contains("var dtcStartIn"))
+        assertTrue(d.contains("\\\"dtc\\\""))
+        assertTrue("start", d.contains("\\\"start\\\": [\${dtcStartIn"))
+        assertTrue("end", d.contains("\\\"end\\\": [\${dtcEnd"))
+    }
+
+    /**
+     * The difference is computed in the file, not left to whoever reads it. A code present
+     * at the end and absent at the start belongs to that session, and the rate, probe count
+     * and time window that produced it are in the same object.
+     */
+    @Test fun whatAppearedIsWorkedOutAndSaidOutLoud() {
+        val d = src("Discover.kt")
+        assertTrue(d.contains("\\\"appeared\\\""))
+        assertTrue("and the operator is told at the time, not at a laptop later",
+            d.contains("TROUBLE CODES APPEARED DURING THIS SESSION"))
+        assertTrue("on screen too", d.contains("warning = \"new trouble code"))
+    }
+
+    /** The opening read must happen before discovery, or there is nothing to compare to. */
+    @Test fun theOpeningReadPrecedesDiscovery() {
+        val c = src("Capture.kt")
+        assertTrue(c.indexOf("""ble.cmd("07", 4_000)""") < c.indexOf("discover.dtcStartIn = dtcStart"))
+        assertTrue(c.contains("discover.dtcStartIn = dtcStart"))
+    }
+}

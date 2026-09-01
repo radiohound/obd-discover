@@ -171,6 +171,9 @@ class CaptureRunner(
     /** OBDb repo the names came from, for attribution in the export. */
     var namedFrom by mutableStateOf(""); private set
     var dtcs by mutableStateOf<List<Dtc.Code>>(emptyList()); private set
+
+    /** Stored AND pending codes as this session began, for the end-of-run comparison. */
+    private var dtcStart: List<String> = emptyList()
     var dtcRead by mutableStateOf(false); private set
     var hintNote by mutableStateOf(""); private set
     /** Protocol the adapter negotiated, e.g. "A6". Empty means the vehicle never answered. */
@@ -549,6 +552,15 @@ class CaptureRunner(
             val (dRaw, dOk) = ble.cmd("03", 4_000)
             dtcs = if (dOk) Dtc.parse(dRaw) else emptyList()
             dtcRead = dOk
+            // PENDING TOO, and kept beside the stored ones as the session's opening state.
+            // Discovery reads both again at the end, so anything that appears in between
+            // belongs to this session -- see Discover.readCodes. Pending is the half that
+            // matters most there: a fault provoked mid-scan is set pending on its first
+            // failed check, long before it matures into a stored code.
+            val (pRaw, pOk) = ble.cmd("07", 4_000)
+            dtcStart = (dtcs.map { it.code } +
+                if (pOk) Dtc.parse(pRaw, "47").map { it.code } else emptyList()).distinct()
+            if (dtcStart.isNotEmpty()) ble.log("codes before this session: ${dtcStart.joinToString(" ")}")
 
             // CAN-ONLY BEYOND THIS POINT, and it is worth being explicit about why.
             //
@@ -818,6 +830,7 @@ class CaptureRunner(
             }
             ble.log("Mode-01 bitmap scan: ${stdPids.size} PIDs supported")
             discover.stdPidsIn = stdPids
+            discover.dtcStartIn = dtcStart
             // Say it on screen, not only in the adapter log. A cache MISS never reaches the
             // coverage line below, and a miss is exactly when a vehicle is being scanned --
             // so the one run that most needs to report its result was the one saying

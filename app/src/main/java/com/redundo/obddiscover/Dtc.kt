@@ -74,14 +74,20 @@ object Dtc {
      * So: split on frames, keep only lines that are themselves a Mode-03 response, and read
      * each one's own codes. `0000` is padding and is skipped rather than reported as P0000.
      */
-    fun parse(raw: String): List<Code> {
+    /**
+     * [expect] is the positive-response byte: 43 for Mode 03 (stored), 47 for Mode 07
+     * (pending). The frame format is identical, so only the prefix differs -- and matching
+     * the wrong one silently returns nothing rather than failing, which is why it is a
+     * parameter instead of a second copy of this loop.
+     */
+    fun parse(raw: String, expect: String = "43"): List<Code> {
         val out = ArrayList<Code>()
         for (line in raw.split('\r', '\n', '>')) {
             var t = line.trim().uppercase().replace(" ", "")
             val c = t.indexOf(':')
             if (c in 1..2) t = t.substring(c + 1)          // ISO-TP frame index
             if (t.isEmpty() || !t.all { it in "0123456789ABCDEF" }) continue
-            if (!t.startsWith("43")) continue              // not this ECU's Mode-03 reply
+            if (!t.startsWith(expect)) continue            // not the reply we asked for
             val body = t.drop(4)                           // 43, then the count byte
             var p = 0
             while (p + 4 <= body.length) {

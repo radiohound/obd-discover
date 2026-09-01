@@ -990,6 +990,34 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
      * "12.4V" from the adapter, or "" if it declined. Never fatal: a missing voltage is a
      * missing number, and a run must not fail because a clone did not implement ATRV.
      */
+    /**
+     * Stored and pending trouble codes, as bare code strings.
+     *
+     * READ AT BOTH ENDS, for the same reason the 12 V rail is. Codes were read once, before
+     * discovery, and the result was not even written to the capture -- so the single moment
+     * worth measuring, whether a session left anything behind, was the one moment nobody
+     * looked at. Eight captures of the Ioniq 5 that stopped recognising its keys contain no
+     * code record at all, and there is now no way to recover one.
+     *
+     * MODE 07 AS WELL AS MODE 03. Pending codes are set on the first failed check, before a
+     * fault has matured into a stored one, so a problem provoked during a scan shows up
+     * there first or not at all.
+     *
+     * THIS CANNOT SEE A SMART-KEY FAULT and is not claimed to. Mode 03 and Mode 07 return
+     * emissions-related codes; a smart-key fault is a body-domain code inside a module that
+     * only answers Mode 19, which this app does not send. What it does cover is the network
+     * domain -- and a U-code is written by the modules that lost contact with one that went
+     * quiet, which is the neighbour's account of exactly the event this is watching for.
+     */
+    private fun readCodes(): List<String> {
+        val out = LinkedHashSet<String>()
+        for ((req, expect) in listOf("03" to "43", "07" to "47")) {
+            val (raw, ok) = ble.cmd(req, 4_000)
+            if (ok) Dtc.parse(raw, expect).forEach { out.add(it.code) }
+        }
+        return out.toList()
+    }
+
     private fun readVolts(): String {
         val (raw, ok) = ble.cmd("ATRV", 2_000)
         if (!ok) return ""
@@ -1041,6 +1069,10 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
 
     /** Supported Mode-01 PIDs, scanned by Capture before discovery. */
     var stdPidsIn: List<String> = emptyList()
+
+    /** Codes read before this session started, so what appeared during it is computable. */
+    var dtcStartIn: List<String> = emptyList()
+    private var dtcEnd: List<String> = emptyList()
     var wmiIn: String = ""
     var vinKeyIn: String = ""
 
@@ -1612,6 +1644,15 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
 
                 voltEnd = readVolts()
                 if (voltEnd.isNotEmpty()) ble.log("battery: ${voltEnd}V at end")
+                dtcEnd = readCodes()
+                val appeared = dtcEnd.filter { it !in dtcStartIn }
+                if (appeared.isNotEmpty()) {
+                    ble.log("TROUBLE CODES APPEARED DURING THIS SESSION: " +
+                        appeared.joinToString(" "))
+                    warning = "new trouble code${if (appeared.size == 1) "" else "s"} since " +
+                        "this session started: ${appeared.joinToString(" ")}"
+                    buzz(ctx, false)
+                }
 
                 // --- can the broadcast data be reached physically? ------------------
                 //
@@ -1782,6 +1823,14 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     // and a day of scanning can flatten a battery -- which on an EV looks
                     // exactly like the key having stopped working.
                     out.write("\"battery_v\": {\"start\": \"$voltStart\", \"end\": \"$voltEnd\"},\n")
+                    // Both ends, and the difference worked out here rather than left to
+                    // whoever reads the file. "appeared" is the whole point: a code present
+                    // at the end and absent at the start belongs to this session, and the
+                    // rate, probe count and time window that produced it are in this file.
+                    out.write("\"dtc\": {\"start\": [${dtcStartIn.joinToString(", ") { "\"$it\"" }}], " +
+                        "\"end\": [${dtcEnd.joinToString(", ") { "\"$it\"" }}], " +
+                        "\"appeared\": [${dtcEnd.filter { it !in dtcStartIn }
+                            .joinToString(", ") { "\"$it\"" }}]},\n")
                     // Whether broadcast-discovered identifiers answer at a physical
                     // address. Recorded per header so the answer accumulates across vehicles
                     // rather than resting on one car.
