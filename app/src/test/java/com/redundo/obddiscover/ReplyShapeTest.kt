@@ -2386,3 +2386,79 @@ class TroubleCodeEndpointsTest {
         assertTrue(c.contains("discover.dtcStartIn = dtcStart"))
     }
 }
+
+/**
+ * The shipped tables must agree with each other about how a make is spelled.
+ *
+ * This project has now lost three vehicles to an exact string match against a hand-packed
+ * table: the model lookup that offered 30 requests instead of 602 and cost two drives, the
+ * same defect left behind in contributedHints, and obdb_supported filing Fiat as "FIAT"
+ * where every other file says "Fiat" — 92 documented locations unreachable on every Fiat,
+ * silently, with the car falling back to a blind sweep as though nothing were known.
+ *
+ * Each was found by accident, long after it shipped, because a missed lookup does not fail:
+ * it returns nothing, and nothing is what an unmapped vehicle looks like anyway. Reviewing
+ * more carefully has not worked three times. So the data is asserted instead.
+ */
+class AssetKeyTest {
+    private val root = generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+        .first { java.io.File(it, "README.md").isFile }
+    private fun asset(n: String) =
+        org.json.JSONObject(java.io.File(root, "app/src/main/assets/$n").readText())
+    private fun keys(o: org.json.JSONObject) = o.keys().asSequence().toList()
+
+    /** Makes named by each table, however that table spells them. */
+    private fun makesIn(n: String): List<String> = when (n) {
+        "obdb_models.json" -> keys(asset(n)).map { it.substringBefore('|') }.distinct()
+        "wmi_to_make.json" -> {
+            val o = asset(n)
+            keys(o).mapNotNull { k ->
+                o.opt(k)?.let { v -> if (v is String) v else (v as? org.json.JSONArray)?.optString(0) }
+            }.filter { it.isNotEmpty() }.distinct()
+        }
+        else -> keys(asset(n))
+    }
+
+    /**
+     * No two tables may name the same make in different letter case.
+     *
+     * Lookups are case-insensitive now, so this is no longer fatal — which is exactly why it
+     * needs a test. A disagreement that stops causing visible harm stops getting noticed, and
+     * the next exact-match lookup anyone writes will break on it again.
+     */
+    @Test fun theTablesSpellEveryMakeTheSameWay() {
+        val files = listOf("obdb_hints.json", "obdb_supported.json",
+                           "obdb_models.json", "wmi_to_make.json")
+        val byLower = HashMap<String, MutableMap<String, String>>()   // lower -> file -> spelling
+        for (f in files) for (m in makesIn(f)) {
+            byLower.getOrPut(m.lowercase()) { LinkedHashMap() }[f] = m
+        }
+        val clashes = byLower.values
+            .filter { it.values.distinct().size > 1 }
+            .map { it.entries.joinToString(", ") { (f, sp) -> "$sp in $f" } }
+        assertEquals("tables disagree on a make's spelling:\n  " +
+            clashes.joinToString("\n  "), emptyList<String>(), clashes)
+    }
+
+    /**
+     * And no lookup may address those tables exactly. One helper resolves a make key; using
+     * the raw string is the bug this class exists to stop coming back.
+     */
+    @Test fun noLookupAddressesAMakeTableDirectly() {
+        val v = java.io.File(root, "app/src/main/java/com/redundo/obddiscover/VehicleId.kt").readText()
+        assertTrue("the helper must exist", v.contains("private fun makeKey(table: JSONObject?, make: String)"))
+        for (bad in listOf("supported?.optJSONArray(make)", "hints?.optJSONArray(m)",
+                           "hints?.optJSONArray(make)", "models?.optJSONArray(make)")) {
+            assertFalse("exact lookup reintroduced: $bad", v.contains(bad))
+        }
+        assertTrue("supported goes through it", v.contains("makeKey(supported, make)"))
+        assertTrue("hints goes through it", v.contains("makeKey(hints, m)"))
+    }
+
+    /** Model comparisons are case-insensitive everywhere, not just where it once hurt. */
+    @Test fun everyModelComparisonIgnoresCase() {
+        val v = java.io.File(root, "app/src/main/java/com/redundo/obddiscover/VehicleId.kt").readText()
+        val exact = Regex("""substringBefore\('\|'\) ==|substringAfter\('\|'\) ==""").findAll(v).count()
+        assertEquals("a make/model half compared with == rather than equals(ignoreCase)", 0, exact)
+    }
+}

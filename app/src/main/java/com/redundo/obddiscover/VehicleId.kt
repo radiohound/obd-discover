@@ -56,11 +56,36 @@ object VehicleId {
         }
     }
 
+    /**
+     * A make's key in one of the bare-make tables, however either side spells it.
+     *
+     * THE ONLY WAY THESE TABLES MAY BE ADDRESSED. Three of them are keyed by make --
+     * obdb_hints, obdb_supported, obdb_models -- and each was packed from a different
+     * upstream, so the casing is not consistent and never will be: obdb_supported files
+     * Fiat as "FIAT" where every other table and the WMI map say "Fiat". An exact lookup
+     * therefore returned nothing for 92 documented locations on every Fiat ever plugged in,
+     * silently, with the vehicle falling back to a blind sweep as though nothing were known
+     * about it.
+     *
+     * That is the third time this project has lost a vehicle to an exact string match --
+     * the model lookup cost two drives before supportedForModel was made case-insensitive,
+     * and the same defect sat in contributedHints after that. Fixing them one at a time has
+     * not worked, so there is one function now and AssetKeyTest walks the shipped files to
+     * prove no two of them disagree by case alone.
+     */
+    private fun makeKey(table: JSONObject?, make: String): String? {
+        if (table == null || make.isEmpty()) return null
+        if (table.has(make)) return make
+        return table.keys().asSequence().firstOrNull { it.equals(make, ignoreCase = true) }
+    }
+
     /** Models this make has model-specific data for. Empty when it has none. */
     fun modelsFor(make: String): List<String> {
         val m = models ?: return emptyList()
         val out = ArrayList<String>()
-        for (k in m.keys()) if (k.substringBefore('|') == make) out.add(k.substringAfter('|'))
+        for (k in m.keys()) {
+            if (k.substringBefore('|').equals(make, ignoreCase = true)) out.add(k.substringAfter('|'))
+        }
         return out.sorted()
     }
 
@@ -429,7 +454,7 @@ object VehicleId {
         // Primary make first so its locations keep their head start; siblings only extend
         // the tail. Deduped because plants that share a brand share documented rows.
         for (m in listOf(make) + also) {
-            val arr = hints?.optJSONArray(m) ?: continue
+            val arr = hints?.optJSONArray(makeKey(hints, m) ?: continue) ?: continue
             for (i in 0 until arr.length()) {
                 val r = arr.optJSONArray(i) ?: continue
                 if (r.length() >= 4) {
@@ -614,7 +639,8 @@ object VehicleId {
      * Mode 21 entries are filtered out: the whitelist does not permit sending them.
      */
     fun supportedFor(make: String): List<Pair<String, String>> {
-        val arr = supported?.optJSONArray(make) ?: return emptyList()
+        val arr = supported?.optJSONArray(makeKey(supported, make) ?: return emptyList())
+            ?: return emptyList()
         val out = ArrayList<Pair<String, String>>(arr.length())
         for (i in 0 until arr.length()) {
             val row = arr.optString(i)
