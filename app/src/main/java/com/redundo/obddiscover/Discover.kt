@@ -253,6 +253,23 @@ object Discover {
 
     /** How many broadcast-found identifiers to re-ask physically. See broadcastReach. */
     const val REACH_SAMPLE = 24
+
+    /**
+     * Which broadcast-found identifiers to re-ask at a physical address.
+     *
+     * Spread across the list rather than taken from the front. Blocks are swept in order, so
+     * the first 24 are all neighbours -- that samples one block and calls it the vehicle,
+     * and a block is one module's worth of data. If 2258xx answers at 7E1 and 2244xx does
+     * not, taking the front would report whichever happened to be swept first.
+     *
+     * Shared, because the pass has to run on cached vehicles too: every car already mapped
+     * takes the cached path and would otherwise never be asked the question at all.
+     */
+    fun reachSample(fromBroadcast: List<String>): List<String> {
+        if (fromBroadcast.isEmpty()) return emptyList()
+        val step = maxOf(1, fromBroadcast.size / REACH_SAMPLE)
+        return fromBroadcast.filterIndexed { i, _ -> i % step == 0 }.take(REACH_SAMPLE)
+    }
     val HEADERS_29BIT = listOf("DB33F1", "DA10F1", "DA18F1", "DA1AF1", "DA28F1")
 
     const val SERVICE = 0x22
@@ -1405,11 +1422,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     .flatMap { b -> b.fullHits.map { it.first } }
                 if (physical.isNotEmpty() && fromBroadcast.isNotEmpty() && !stopFlag) {
                     phase = "reach"
-                    // Spread across the block space rather than taking the first N, which
-                    // would sample one block and call it the vehicle.
-                    val step = maxOf(1, fromBroadcast.size / Discover.REACH_SAMPLE)
-                    val sample = fromBroadcast.filterIndexed { i, _ -> i % step == 0 }
-                        .take(Discover.REACH_SAMPLE)
+                    val sample = Discover.reachSample(fromBroadcast)
                     for (h in physical) {
                         if (stopFlag || outOfTime()) break
                         selectHeader(h)
@@ -1427,6 +1440,21 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     ble.log("broadcast reach: ${reachSampled} identifiers re-asked at " +
                         physical.joinToString(" ") { "$it=${reach[it] ?: 0}" })
                 }
+
+                // THE PLAN, DECIDED ONCE. What this run hands the drive: every header,
+                // with triage's rejects already gone. It is computed here rather than after
+                // the write so the capture can carry it, and that is the entire point --
+                // the cached path used to re-derive "what should the drive log contain"
+                // from full_hits and reached a different answer, keeping one header and no
+                // triage. Two implementations of one decision, and the second was wrong for
+                // however long nobody compared them. Now there is one, and it is recorded.
+                //
+                // Phantom blocks are pruned further down and cannot affect this: a phantom
+                // is a block whose full sweep found nothing, so it contributes no full_hits.
+                val drivePlan = found.values
+                    .flatMap { b -> b.fullHits.map { b.header to it.first } }
+                    .filterNot { "${it.first}|${it.second}" in dropped }
+                    .groupBy({ it.first }, { it.second })
 
                 // Stamped once, before writing, so the filename and finished_at agree
                 // rather than differing by however long serialising takes.
@@ -1514,6 +1542,13 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     out.write("\"triage\": {" + triage.entries.joinToString(", ") {
                         "\"${it.key}\": \"${it.value}\""
                     } + "},\n")
+                    // WHAT THIS RUN HANDS THE DRIVE, per header, so the next session reads
+                    // the decision instead of trying to reach it again. The capture keeps
+                    // every identifier in `detail` regardless: this narrows the log, not
+                    // the record.
+                    out.write("\"drive_plan\": {" + drivePlan.entries.joinToString(", ") { (h, reqs) ->
+                        "\"$h\": [" + reqs.joinToString(", ") { "\"$it\"" } + "]"
+                    } + "},\n")
                     // The 12 V rail at both ends of the run. A dongle keeps the bus awake,
                     // and a day of scanning can flatten a battery -- which on an EV looks
                     // exactly like the key having stopped working.
@@ -1579,10 +1614,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 }
                 blocksFound = found.size
 
-                val byHeader = found.values
-                    .flatMap { b -> b.fullHits.map { b.header to it.first } }
-                    .filterNot { "${it.first}|${it.second}" in dropped }
-                    .groupBy({ it.first }, { it.second })
+                val byHeader = drivePlan
                 val best = byHeader.maxByOrNull { it.value.size }
                 aborted = stopFlag
                 // WHICH MODEL DOES THIS CAR ANSWER LIKE? Computed from what was found, so it

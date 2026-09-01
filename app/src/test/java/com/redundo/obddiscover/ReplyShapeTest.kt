@@ -1241,8 +1241,12 @@ class FocusedLogTest {
     }
 
     @Test fun aFocusedRunIsNotWidenedByTheMultiHeaderPlan() {
+        // Two sources can widen it now: the discover run's plan, and -- since a cached
+        // vehicle skips discovery entirely -- the cached map's. Focus has to beat both.
         assertTrue("logPlanAll must be suppressed under focus",
-            src("Capture.kt").contains("if (focus.isNotEmpty()) emptyList() else discover.logPlanAll"))
+            src("Capture.kt").contains("val all = if (focus.isNotEmpty()) emptyList()"))
+        assertTrue("and so must the cached fallback",
+            src("Capture.kt").contains("else discover.logPlanAll.ifEmpty { allIn }"))
     }
 }
 
@@ -1803,7 +1807,6 @@ class ResumedRunReportsWhatItHasTest {
         generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
             .first { java.io.File(it, "README.md").isFile },
         "app/src/main/java/com/redundo/obddiscover/Discover.kt").readText()
-
     @Test fun carriedIdentifiersAreCounted() {
         assertTrue("the count must not simply reset", !src.contains("didsFound = 0     //"))
         val i = src.indexOf("didsFound = found.values")
@@ -1927,8 +1930,20 @@ class BroadcastReachTest {
      * vehicle -- and blocks are contiguous, so the first N are all neighbours.
      */
     @Test fun theSampleIsSpreadNotTakenFromTheFront() {
-        assertTrue(src.contains("fromBroadcast.size / Discover.REACH_SAMPLE"))
-        assertTrue(src.contains("filterIndexed { i, _ -> i % step == 0 }"))
+        // 577 broadcast identifiers, as this BMW actually has. The front 24 are all in
+        // 2240xx; a spread sample has to reach the top of the range.
+        val ids = (0 until 577).map { "22%04X".format(0x4000 + it) }
+        val got = Discover.reachSample(ids)
+        assertEquals(24, got.size)
+        assertEquals(ids.first(), got.first())
+        assertTrue("must reach past the first block", got.last() > "224100")
+        assertTrue("evenly spread", got.toSet().size == 24)
+    }
+
+    /** Fewer identifiers than the sample size is not an error, and must not divide by zero. */
+    @Test fun aShortListIsTakenWhole() {
+        assertEquals(emptyList<String>(), Discover.reachSample(emptyList()))
+        assertEquals(listOf("224001", "224002"), Discover.reachSample(listOf("224001", "224002")))
     }
 
     /** Bounded and interruptible like every other pass. */
@@ -1938,6 +1953,27 @@ class BroadcastReachTest {
         assertTrue("the pass must exist", i > 0)
         assertTrue("and stop with the session",
             src.substring(i, i + 700).contains("if (stopFlag || outOfTime()) break"))
+    }
+
+    /**
+     * It has to run on a car that is ALREADY MAPPED, or it runs on no car at all.
+     *
+     * Two CAPTUREs on a fully mapped BMW on 2026-08-31 produced no answer and no capture
+     * file: both took the cached path, where discovery -- and therefore the pass -- never
+     * executes. Every vehicle this project has mapped is in exactly that state.
+     */
+    @Test fun theCachedPathAsksItToo() {
+        val cap = java.io.File(
+            generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+                .first { java.io.File(it, "README.md").isFile },
+            "app/src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+        assertTrue("a cached vehicle runs the pass", cap.contains("if (!reached) reachStep(file, cachedAll)"))
+        assertTrue("only once -- the map records that it was asked",
+            cap.contains("o.optJSONObject(\"broadcast_reach\")?.optInt(\"sampled\") ?: 0) > 0"))
+        assertTrue("and the answer is written back", cap.contains("o.put(\"broadcast_reach\""))
+        assertTrue("using the same sampler as discovery", cap.contains("Discover.reachSample(fromBroadcast)"))
+        assertTrue("asking only non-broadcast headers",
+            cap.contains("it !in Discover.BROADCAST_HEADERS"))
     }
 
     /** The answer is recorded per header, so it accumulates across vehicles. */
@@ -1952,5 +1988,131 @@ class BroadcastReachTest {
     @Test fun itsProbesAreCounted() {
         assertTrue(src.contains("probesReach++"))
         assertTrue(src.contains("\\\"reach\\\": ${'$'}probesReach"))
+    }
+}
+
+/**
+ * What a CAPTURE logs on a car that is already mapped.
+ *
+ * Measured on the F10 on 2026-08-31. The discover run had produced a 425-column drive log --
+ * 327 identifiers at 7DF plus 87 at 7E1, triaged down from 705. The two CAPTUREs that
+ * followed produced 588 columns, all of them at 7DF: wider than the triaged log AND missing
+ * a whole module. Both losses came from findCached, which kept the largest header only and
+ * knew nothing about triage.
+ */
+class CachedPlanTest {
+    private val cap = java.io.File(
+        generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+            .first { java.io.File(it, "README.md").isFile },
+        "app/src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+
+    /**
+     * 7E1 held 128 of this BMW's 705 identifiers and every drive after the first dropped
+     * all of them. The discover path has kept every header since the Ranger; this one had
+     * not learned.
+     */
+    @Test fun everyHeaderSurvivesTheCache() {
+        assertTrue("the cached map carries all headers",
+            cap.contains("val all = byHeader.entries"))
+        assertTrue("and the drive uses them when discovery did not run",
+            cap.contains("discover.logPlanAll.ifEmpty { allIn }"))
+    }
+
+    /**
+     * ONE decision, made once, recorded. The discover run and the cached path used to each
+     * work out what the drive should log, and the second one was wrong in two directions at
+     * the same time -- one header, no triage -- for however long nobody compared them.
+     */
+    @Test fun thePlanIsRecordedNotRederived() {
+        val dis = java.io.File(
+            generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+                .first { java.io.File(it, "README.md").isFile },
+            "app/src/main/java/com/redundo/obddiscover/Discover.kt").readText()
+        assertTrue("discovery writes the plan it chose", dis.contains("\\\"drive_plan\\\""))
+        assertTrue("and hands the drive that same object, not a second computation",
+            dis.contains("val byHeader = drivePlan"))
+        assertTrue("the cache reads it", cap.contains("""o.optJSONObject("drive_plan")"""))
+    }
+
+    /** A recorded plan replaces the derivation outright -- it is not merged with it. */
+    @Test fun theRecordedPlanIsUsedWhole() {
+        assertTrue(cap.contains("byHeader.clear()"))
+        assertTrue("and the derivation is the else branch", cap.contains("val drop = reconstructDrop(o, det)"))
+    }
+
+    /** A K-line map has no headers at all; the multi-header form must stay empty there. */
+    @Test fun theNonCanMapIsUnaffected() {
+        assertTrue(cap.contains("""Cached(f, "" to clean, 0, emptyList(), true)"""))
+    }
+}
+
+/**
+ * The drop set reconstructed from a map that predates drive_plan.
+ *
+ * Every map on the phone was written before drive_plan existed, so without this the fix
+ * would apply to no vehicle anyone owns until each was mapped again. Triage's second
+ * payload is not a free variable -- it is the first for STATIC and UNPOPULATED and null for
+ * MOVED -- so rank() reproduces the classification from the file alone.
+ */
+class DropSetReconstructionTest {
+    private fun quads(vararg rows: Triple<String, String, String>) =
+        rows.map { (req, first, kind) ->
+            PreDriveTriage.Quad("7DF", req, first,
+                if (kind == "MOVED") null else first)
+        }
+
+    @Test fun unpopulatedAndDuplicatesAreDroppedAndNothingElseIs() {
+        val r = PreDriveTriage.rank(quads(
+            Triple("225817", "3A", "STATIC"),      // ambient
+            Triple("2258EB", "3A", "STATIC"),      // the same signal under a second name
+            Triple("224001", "00", "UNPOPULATED"), // answering, carrying nothing
+            Triple("224A2E", "1A90", "MOVED"),
+        ))
+        val drop = r.rows.filter {
+            it.kind == PreDriveTriage.Kind.UNPOPULATED || it.duplicateOf != null
+        }.map { it.request }.toSet()
+        assertEquals(setOf("2258EB", "224001"), drop)
+        assertTrue("the first of a duplicate pair survives", "225817" !in drop)
+        assertTrue("a moving identifier always survives", "224A2E" !in drop)
+    }
+
+    /**
+     * STATIC is kept. Coolant at equilibrium and a stopped car hold still too, and dropping
+     * those is exactly the silent loss this project keeps finding.
+     */
+    @Test fun staticIsNotDropped() {
+        val r = PreDriveTriage.rank(quads(Triple("224300", "BE", "STATIC")))
+        assertTrue(r.rows.none {
+            it.kind == PreDriveTriage.Kind.UNPOPULATED || it.duplicateOf != null
+        })
+    }
+
+    /** MOVED and STATIC with the same first payload are not each other's duplicate. */
+    @Test fun theSecondProbeSeparatesThem() {
+        val r = PreDriveTriage.rank(quads(
+            Triple("224520", "0000", "MOVED"),
+            Triple("224404", "0000", "STATIC"),
+        ))
+        assertTrue("different keys, so neither is a duplicate",
+            r.rows.none { it.duplicateOf != null })
+    }
+
+    /**
+     * Reconstruction is the fallback, never the mechanism. A map that carries its own plan
+     * must be read, not second-guessed -- that is the whole point of recording it.
+     */
+    @Test fun aRecordedPlanIsNeverRederived() {
+        val cap = java.io.File(
+            generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+                .first { java.io.File(it, "README.md").isFile },
+            "app/src/main/java/com/redundo/obddiscover/Capture.kt").readText()
+        val i = cap.indexOf("""val planned = o.optJSONObject("drive_plan")""")
+        assertTrue("the plan is looked for first", i > 0)
+        val branch = cap.substring(i, cap.indexOf("if (byHeader.isEmpty()) continue", i))
+        assertTrue("and reconstruction sits in the else", branch.contains("} else {"))
+        assertTrue("reached only when there is no recorded plan",
+            branch.indexOf("reconstructDrop") > branch.indexOf("} else {"))
+        assertTrue("MOVED is the only kind with a null second probe",
+            cap.contains("""if (k == PreDriveTriage.Kind.MOVED.name) null else first"""))
     }
 }

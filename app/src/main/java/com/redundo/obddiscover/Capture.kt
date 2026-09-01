@@ -573,7 +573,7 @@ class CaptureRunner(
                 // full Mode-01/09/21 scan twice for an identical result.
                 val cachedNonCan = if (forceDiscover) null else findCached(vinKey)
                 if (cachedNonCan != null) {
-                    val (file, plan, _) = cachedNonCan
+                    val (file, plan, _, _, _) = cachedNonCan
                     status = "known vehicle${if (wmi.isNotEmpty()) " ($wmi)" else ""} — " +
                         "${plan.second.size} parameters already mapped"
                     detail = "from ${file.name}  ·  Re-map to scan again"
@@ -867,7 +867,7 @@ class CaptureRunner(
                 .any { it !in priorTriage }
             val cached = if (forceDiscover || unfinished || untriaged) null else findCached(vinKey)
             if (cached != null) {
-                val (file, plan, skipped) = cached
+                val (file, plan, skipped, cachedAll, reached) = cached
                 // WHAT THIS CAR ALREADY HAS, on screen, so "do I need to scan this again?"
                 // is answerable without pulling files off the phone.
                 // WHAT THIS CAR HAS, computed after this scan folds in, so the line
@@ -900,7 +900,8 @@ class CaptureRunner(
                     "${plan.second.size} DIDs already mapped, skipping discovery"
                 detail = "from ${file.name}" +
                     (if (skipped > 0) "  (+$skipped DIDs on other headers)" else "")
-                driveStep(plan)
+                if (!reached) reachStep(file, cachedAll)
+                driveStep(plan, cachedAll)
             } else {
                 // No VIN is NOT a reason to reuse someone else's map. Discovering again
                 // costs ten minutes; logging the wrong car's DIDs costs the whole drive.
@@ -1081,7 +1082,59 @@ class CaptureRunner(
         }
     }
 
-    private fun driveStep(planIn: Pair<String, List<String>>) {
+    /**
+     * Ask whether broadcast-discovered identifiers answer at a physical address.
+     *
+     * WHY THIS RUNS ON THE CACHED PATH AT ALL. The pass was built into the discover run,
+     * and every vehicle already mapped skips discovery -- so it would have run on no car
+     * anyone owns. Two CAPTUREs on a fully mapped BMW on 2026-08-31 produced no answer and
+     * no capture file, because there was nothing left for discovery to do.
+     *
+     * WHY IT MATTERS. The functional broadcast is what reaches the immobiliser and
+     * smart-key modules; a request to 7E1 does not. Every identifier this project has
+     * found on a broadcast was found there and nowhere else, which looks like proof the
+     * broadcast is load-bearing and is nothing of the kind: a block discovered on 7DF is
+     * swept on 7DF, so these have never once been asked at a physical address. If they
+     * answer, blind enumeration moves off the broadcast entirely.
+     *
+     * Twenty-four identifiers per live physical header -- five seconds, once per vehicle,
+     * and the answer is written back into the map so it is never asked twice.
+     */
+    private fun reachStep(mapFile: File, all: List<Poll>) {
+        val physical = all.map { it.header }.distinct()
+            .filter { it !in Discover.BROADCAST_HEADERS && it.isNotEmpty() }
+        val fromBroadcast = all.filter { it.header in Discover.BROADCAST_HEADERS }.map { it.request }
+        val sample = Discover.reachSample(fromBroadcast)
+        if (physical.isEmpty() || sample.isEmpty() || capStop) return
+        val answered = LinkedHashMap<String, Int>()
+        for (h in physical) {
+            if (capStop) break
+            ble.cmd("ATSH$h")
+            var n = 0
+            for (req in sample) {
+                if (capStop) break
+                val (raw, ok) = ble.cmd(req, 4_000)
+                if (ok && Obd.payloadOf(req, raw) != null) n++
+            }
+            answered[h] = n
+            status = "broadcast reach: $h answered $n of ${sample.size}"
+        }
+        if (answered.isEmpty()) return
+        ble.log("broadcast reach: ${sample.size} identifiers re-asked at " +
+            physical.joinToString(" ") { "$it=${answered[it] ?: 0}" })
+        // Back into the map this vehicle already has, so the next CAPTURE does not repeat
+        // it -- and so the answer survives in the same file a reader is already looking at.
+        runCatching {
+            val o = JSONObject(mapFile.readText())
+            o.put("broadcast_reach", JSONObject()
+                .put("sampled", sample.size)
+                .put("answered", JSONObject(answered as Map<*, *>))
+                .put("asked_on_build", BuildTag.ID))
+            mapFile.writeText(o.toString())
+        }
+    }
+
+    private fun driveStep(planIn: Pair<String, List<String>>, allIn: List<Poll> = emptyList()) {
         // FOCUSED LOG. Narrow the plan to the identifiers this vehicle has named or open
         // questions about, when asked. Resolution is the point: the same warm-up that gives
         // 17 samples across 577 columns gives hundreds across twenty, and a signal that
@@ -1113,7 +1166,11 @@ class CaptureRunner(
         // cached map, or a non-CAN car). Session.activePlan keeps the single-header form so
         // KEEP DRIVING and the UI are unaffected.
         // A focused run must not be widened back out by the multi-header plan.
-        val all = if (focus.isNotEmpty()) emptyList() else discover.logPlanAll
+        // The discover run's plan when there was one, the cached map's otherwise. Without
+        // the fallback the multi-header form only ever existed on the run that mapped the
+        // car: every CAPTURE after it logged one header.
+        val all = if (focus.isNotEmpty()) emptyList()
+                  else discover.logPlanAll.ifEmpty { allIn }
         runner.start("discovered", plan.second, plan.first, 1.0,
                      multi = if (all.size > plan.second.size) all else emptyList()) { f ->
             LogService.stop(ctx)
@@ -1214,7 +1271,51 @@ class CaptureRunner(
         return mergeProgress(files.mapNotNull { runCatching { it.readText() }.getOrNull() }, key)
     }
 
-    private fun findCached(key: String): Triple<File, Pair<String, List<String>>, Int>? {
+    /**
+     * A cached map, as the drive needs it: the richest header on its own for the UI, every
+     * header for the log, and the identifiers triage already ruled out left out of both.
+     */
+    data class Cached(
+        val file: File,
+        val plan: Pair<String, List<String>>,
+        val skipped: Int,
+        val all: List<Poll>,
+        val reached: Boolean,
+    )
+
+    /**
+     * The drive plan a pre-drive_plan capture would have chosen, rebuilt from what it kept.
+     *
+     * A fallback for the maps already on disk, and nothing more: every capture written from
+     * now on carries its plan. Kept because the alternative is re-mapping every vehicle
+     * before the fix reaches it, which means probing cars again to recover a decision that
+     * was already made.
+     */
+    private fun reconstructDrop(o: JSONObject, det: org.json.JSONArray): Set<String> {
+        val t = o.optJSONObject("triage") ?: return emptySet()
+        val quads = ArrayList<PreDriveTriage.Quad>()
+        for (i in 0 until det.length()) {
+            val b = det.optJSONObject(i) ?: continue
+            val hdr = b.optString("header", "")
+            val full = b.optJSONArray("full_hits") ?: continue
+            for (j in 0 until full.length()) {
+                val row = full.optJSONArray(j) ?: continue
+                val req = row.optString(0, "")
+                val first = row.optString(1, "")
+                if (req.isEmpty()) continue
+                val k = t.optString("$hdr|$req").substringBefore('@')
+                if (k.isEmpty()) continue
+                quads.add(PreDriveTriage.Quad(hdr, req, first,
+                    if (k == PreDriveTriage.Kind.MOVED.name) null else first))
+            }
+        }
+        if (quads.isEmpty()) return emptySet()
+        return PreDriveTriage.rank(quads).rows
+            .filter { it.kind == PreDriveTriage.Kind.UNPOPULATED || it.duplicateOf != null }
+            .map { "${it.header}|${it.request}" }.toSet()
+    }
+
+    private fun findCached(key: String): Cached? {
         if (key.isEmpty()) return null
         val dir = File(ctx.getExternalFilesDir(null), "logs")
         val files = dir.listFiles { f -> f.name.startsWith("discover-") && f.name.endsWith(".json") }
@@ -1265,11 +1366,49 @@ class CaptureRunner(
                     }
                     val clean = plan.filter { it.length >= 4 && it.all { c -> c in "0123456789ABCDEF" } }
                     if (clean.isEmpty()) continue
-                    return Triple(f, "" to clean, 0)
+                    // A K-line map has no headers, so there is nothing for the multi-header
+                    // form to add. Empty, not a duplicate of the plan.
+                    return Cached(f, "" to clean, 0, emptyList(), true)
                 }
+                // READ THE DECISION, do not make it again. The discover run already chose
+                // what the drive should log -- every header, triage's rejects removed -- and
+                // writes it as drive_plan. This path used to re-derive that from full_hits
+                // and got a different answer both ways at once: the richest header only, so
+                // a cached BMW dropped all 128 identifiers at 7E1, and no triage, so the 185
+                // that answer with nothing and the 106 that duplicate another column came
+                // straight back. 414 columns became 577, and a whole module went missing
+                // from every drive after the first.
+                val planned = o.optJSONObject("drive_plan")
+                if (planned != null) {
+                    byHeader.clear()
+                    for (h in planned.keys()) {
+                        val a = planned.optJSONArray(h) ?: continue
+                        val reqs = (0 until a.length()).map { a.optString(it) }
+                            .filter { it.isNotEmpty() }
+                        if (reqs.isNotEmpty()) byHeader[h] = reqs.toMutableList()
+                    }
+                } else {
+                    // ONLY for maps written before drive_plan existed. The classification is
+                    // in the file and the first payload is in full_hits, and triage's second
+                    // payload is not a free variable -- it is the first for STATIC and
+                    // UNPOPULATED and null for MOVED -- so rank() reproduces the same answer
+                    // without re-probing the car. Checked against this BMW's own drive log:
+                    // 418 kept against the 414 that run chose, the four extra being
+                    // duplicates it caught and this cannot. It keeps too many, never too few.
+                    val drop = reconstructDrop(o, det)
+                    for ((h, reqs) in byHeader) reqs.removeAll { "$h|$it" in drop }
+                    byHeader.entries.removeAll { it.value.isEmpty() }
+                }
+                if (byHeader.isEmpty()) continue
                 val best = byHeader.maxByOrNull { it.value.size } ?: continue
+                val all = byHeader.entries
+                    .sortedByDescending { it.value.size }
+                    .flatMap { e -> e.value.map { Poll(it, e.key) } }
                 val skipped = byHeader.entries.filter { it.key != best.key }.sumOf { it.value.size }
-                return Triple(f, best.key to best.value, skipped)
+                // Has this vehicle ever been asked the reach question? Absent on every map
+                // written before the pass existed, which is all of them.
+                val reached = (o.optJSONObject("broadcast_reach")?.optInt("sampled") ?: 0) > 0
+                return Cached(f, best.key to best.value, skipped, all, reached)
             } catch (_: Exception) { /* unreadable file: try the next */ }
         }
         return null
