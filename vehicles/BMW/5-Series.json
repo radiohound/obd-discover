@@ -91,7 +91,7 @@
    "header": "7DF",
    "name": "odometer",
    "unit": "km",
-   "verified": "read against the dashboard one minute into a running log (142,934 mi), and again as +5 km over a 17-minute drive",
+   "verified": "read against the dashboard one minute into a running log (142,934 mi), and again as +5 km over a 17-minute drive OBDb also names this an odometer, at 6F1/640, but its coverage for that identifier starts at 2016 -- and this 2013 answers it. Independent of the dashboard check already recorded here.",
    "confidence": "ground-truth"
   },
   {
@@ -199,7 +199,7 @@
    "name": "vehicle speed",
    "unit": "km/h",
    "confidence": "inferred",
-   "verified": "Mean 41.9 against a 43.1 anchor over 124 samples, r=0.699. Note OBDb disagrees with the published map on this identifier; this car sides with the map. Recorded as inferred rather than correlated: r=0.699 reflects a coarse 34 s row interval against a changing speed, not a weak identification; the means agree to 1.2 mph.",
+   "verified": "Mean 41.9 against a 43.1 anchor over 124 samples, r=0.699. Note OBDb disagrees with the published map on this identifier; this car sides with the map. Recorded as inferred rather than correlated: r=0.699 reflects a coarse 34 s row interval against a changing speed, not a weak identification; the means agree to 1.2 mph. OBDb independently names this vehicle speed, at 6F1/612.",
    "source": "cross-checked against a community-published N55 DME map (thesecretingredient.neocities.org/bmw/dme/n55, anonymous, no stated derivation) and CONFIRMED here against this car's own logs",
    "scale": 1,
    "offset": 0,
@@ -249,7 +249,7 @@
    "unit": "mbar absolute",
    "scale": 1,
    "confidence": "inferred",
-   "verified": "s16 x 1 hPa, ABSOLUTE. Reads 1000-1040 hPa with the engine stopped -- atmospheric, correct for oil pressure at rest -- and 2414-4528 hPa running, which is 2.4-4.5 bar absolute. The scale this project flagged as unverified is confirmed. Skipping the barometric subtraction is what made an earlier decode read ~15 psi high.",
+   "verified": "s16 x 1 hPa, ABSOLUTE. Reads 1000-1040 hPa with the engine stopped -- atmospheric, correct for oil pressure at rest -- and 2414-4528 hPa running, which is 2.4-4.5 bar absolute. The scale this project flagged as unverified is confirmed. Skipping the barometric subtraction is what made an earlier decode read ~15 psi high. OBDb independently names this engine oil pressure, at 6F1/612. That agrees with the identification here and does not settle the open question, which is about the scale.",
    "source": "cross-checked against a community-published N55 DME map (thesecretingredient.neocities.org/bmw/dme/n55, anonymous, no stated derivation) and CONFIRMED here against this car's own logs"
   },
   {
@@ -319,10 +319,86 @@
    "confidence": "community-published",
    "verified": "Reads 639-4312 rpm and tracks the rpm anchor at r=0.776. A finer-grained engine speed than the legislated 010C.",
    "source": "named in a community-published N55 DME map (thesecretingredient.neocities.org/bmw/dme/n55, anonymous, no stated derivation); the identifier and the values are from this project's own sweeps"
+  },
+  {
+   "did": "22DA2A",
+   "header": "7E1",
+   "name": "torque converter speed, and transmission output shaft speed",
+   "unit": "rpm",
+   "confidence": "inferred",
+   "verified": "Two 16-bit values. This car returned 634 rpm and 0 stationary at warm idle -- an idling torque converter with the output shaft still, which is what the vehicle was doing. The most convincing of the nine, because both halves agree with a known state.",
+   "source": "named in OBDb's BMW-5-Series signalset (github.com/OBDb/BMW-5-Series, CC BY-SA 4.0), which documents it at 6F1 extended addressing (response 618, the transmission). The identifier, the header it answered on here and any reading quoted are from this project's own sweeps; the name is theirs. Field offsets and scales are not copied."
+  },
+  {
+   "did": "22DA25",
+   "header": "7E1",
+   "name": "engine oil temperature",
+   "unit": "degC",
+   "confidence": "inferred",
+   "verified": "u16 with a -48 offset per OBDb. This car's stationary warm-idle reading decodes to 103 degC on that formula, which is plausible for warm oil and was not checked against anything.",
+   "source": "named in OBDb's BMW-5-Series signalset (github.com/OBDb/BMW-5-Series, CC BY-SA 4.0), which documents it at 6F1 extended addressing (response 618, the transmission). The identifier, the header it answered on here and any reading quoted are from this project's own sweeps; the name is theirs. Field offsets and scales are not copied."
+  },
+  {
+   "did": "22DA12",
+   "header": "7E1",
+   "name": "automatic transmission fluid temperature",
+   "unit": "degC",
+   "confidence": "weak",
+   "verified": "Decodes to 59 degC at warm idle on the same -48 offset the oil temperature uses. OBDb gives this one no scale, so the offset is carried across from its neighbour and is a guess about form, not a measurement.",
+   "source": "named in OBDb's BMW-5-Series signalset (github.com/OBDb/BMW-5-Series, CC BY-SA 4.0), which documents it at 6F1 extended addressing (response 618, the transmission). The identifier, the header it answered on here and any reading quoted are from this project's own sweeps; the name is theirs. Field offsets and scales are not copied."
+  },
+  {
+   "did": "22DA2E",
+   "header": "7E1",
+   "name": "shift gear (byte 0) and DRIVE MODE (byte 1)",
+   "confidence": "inferred",
+   "verified": "The drive-mode selector this project had been looking for by correlation across 705 columns. Read 00 01 stationary. Which mode 1 denotes is unknown -- settling it needs a log of this one identifier while cycling eco, comfort and sport, which is a two-minute stationary test rather than a drive.",
+   "source": "named in OBDb's BMW-5-Series signalset (github.com/OBDb/BMW-5-Series, CC BY-SA 4.0), which documents it at 6F1 extended addressing (response 618, the transmission). The identifier, the header it answered on here and any reading quoted are from this project's own sweeps; the name is theirs. Field offsets and scales are not copied."
+  },
+  {
+   "did": "22DA37",
+   "header": "7E1",
+   "name": "time in drive, time in sport, time in manual",
+   "confidence": "community-published",
+   "verified": "Three counters, one byte each. The transmission has been keeping a tally of drive modes all along. Units unknown.",
+   "source": "named in OBDb's BMW-5-Series signalset (github.com/OBDb/BMW-5-Series, CC BY-SA 4.0), which documents it at 6F1 extended addressing (response 618, the transmission). The identifier, the header it answered on here and any reading quoted are from this project's own sweeps; the name is theirs. Field offsets and scales are not copied."
+  },
+  {
+   "did": "22DA23",
+   "header": "7E1",
+   "name": "odometer, low resolution",
+   "unit": "km",
+   "confidence": "community-published",
+   "verified": "A second odometer, distinct from 221700 which this project verified against the dashboard. Not cross-checked against that one here.",
+   "source": "named in OBDb's BMW-5-Series signalset (github.com/OBDb/BMW-5-Series, CC BY-SA 4.0), which documents it at 6F1 extended addressing (response 618, the transmission). The identifier, the header it answered on here and any reading quoted are from this project's own sweeps; the name is theirs. Field offsets and scales are not copied."
+  },
+  {
+   "did": "22DA28",
+   "header": "7E1",
+   "name": "brake switch",
+   "confidence": "community-published",
+   "verified": "Read 0 in the capture quoted, brake released.",
+   "source": "named in OBDb's BMW-5-Series signalset (github.com/OBDb/BMW-5-Series, CC BY-SA 4.0), which documents it at 6F1 extended addressing (response 618, the transmission). The identifier, the header it answered on here and any reading quoted are from this project's own sweeps; the name is theirs. Field offsets and scales are not copied."
+  },
+  {
+   "did": "22DA1F",
+   "header": "7E1",
+   "name": "kickdown",
+   "confidence": "community-published",
+   "verified": "Not observed changing here.",
+   "source": "named in OBDb's BMW-5-Series signalset (github.com/OBDb/BMW-5-Series, CC BY-SA 4.0), which documents it at 6F1 extended addressing (response 618, the transmission). The identifier, the header it answered on here and any reading quoted are from this project's own sweeps; the name is theirs. Field offsets and scales are not copied."
+  },
+  {
+   "did": "22DA22",
+   "header": "7E1",
+   "name": "torque converter lockup",
+   "confidence": "community-published",
+   "verified": "Not observed changing here.",
+   "source": "named in OBDb's BMW-5-Series signalset (github.com/OBDb/BMW-5-Series, CC BY-SA 4.0), which documents it at 6F1 extended addressing (response 618, the transmission). The identifier, the header it answered on here and any reading quoted are from this project's own sweeps; the name is theirs. Field offsets and scales are not copied."
   }
  ],
  "source": "obd-discover, on-car captures 2026-08-29 to 2026-08-31; Mode-01 support scanned 2026-08-29. Triage and broadcast-reach measured 2026-08-30/31.",
- "notes": "535i (F10). An earlier note here claimed 2258xx and 224Axx were absent from the community lists; that was WRONG -- they are the two best-covered blocks in the published N55 map, at 125 of 227 and 51 of 131. What survives is narrower and still true: 2258BA, 224517, 224303 and 224A2E appear in none of the N55, S55, B58, N63 or B48 maps. Enhanced Mode-22 reads in the 58xx block on the 7DF functional broadcast decode byte 0 only; a full u16 read there ingests NAK frames. That constraint comes from obd-gauge-cluster's profile and matters for anyone decoding 2258xx from a broadcast. 225817 and 2258EB were oil-temperature candidates in the 58xx block and are byte-identical to each other on 99.51% of 1,427 logged rows -- one signal under two identifiers, which is what makes them candidates rather than two findings. Horsepower on the dash is computed from 2258BA x 224517 x rpm; everything else shown there is standard Mode-01, not enhanced DIDs. 2258F3 turned out to be the low-pressure fuel rail, not a second limiter. NINETEEN identifiers this car answers have no published definition in any of the six DME maps that source holds -- N55, S55, B58, N63, B48 and S63, all six fetched and grepped 2026-08-30 rather than read: 221000, 22100A, 22100E, 221600, 221700, 221701, 221721, 222502, 222503, 222508, 223000, 223001, 224001, 224007, 224044, 224047, 22404D, 22409A and 225000. The twentieth, 224002, IS published -- B48 alone lists it as \"Status switching states 1\", a BITFIELD in bits, multiplier 1 offset 0. B48 is the only one of the six whose range starts below 0x4201 (it starts at 0x4002), which is why it is the only map that could hold it. The others span 0x4201 upward, so the low blocks 2210 through 2240 sit below every window but B48's. 221700, the odometer, remains among the unpublished: it rests on a dashboard reading and a 17-minute drive with nothing to corroborate it. Anything established in these blocks is new rather than confirmed.\n\nIDENTIFIER COUNT CORRECTED. This record said 572 while its own map file, its own stats block and every capture said 705 -- a number left behind by an update that touched everything except the field a reader looks at first.",
+ "notes": "535i (F10). An earlier note here claimed 2258xx and 224Axx were absent from the community lists; that was WRONG -- they are the two best-covered blocks in the published N55 map, at 125 of 227 and 51 of 131. What survives is narrower and still true: 2258BA, 224517, 224303 and 224A2E appear in none of the N55, S55, B58, N63 or B48 maps. Enhanced Mode-22 reads in the 58xx block on the 7DF functional broadcast decode byte 0 only; a full u16 read there ingests NAK frames. That constraint comes from obd-gauge-cluster's profile and matters for anyone decoding 2258xx from a broadcast. 225817 and 2258EB were oil-temperature candidates in the 58xx block and are byte-identical to each other on 99.51% of 1,427 logged rows -- one signal under two identifiers, which is what makes them candidates rather than two findings. Horsepower on the dash is computed from 2258BA x 224517 x rpm; everything else shown there is standard Mode-01, not enhanced DIDs. 2258F3 turned out to be the low-pressure fuel rail, not a second limiter. NINETEEN identifiers this car answers have no published definition in any of the six DME maps that source holds -- N55, S55, B58, N63, B48 and S63, all six fetched and grepped 2026-08-30 rather than read: 221000, 22100A, 22100E, 221600, 221700, 221701, 221721, 222502, 222503, 222508, 223000, 223001, 224001, 224007, 224044, 224047, 22404D, 22409A and 225000. The twentieth, 224002, IS published -- B48 alone lists it as \"Status switching states 1\", a BITFIELD in bits, multiplier 1 offset 0. B48 is the only one of the six whose range starts below 0x4201 (it starts at 0x4002), which is why it is the only map that could hold it. The others span 0x4201 upward, so the low blocks 2210 through 2240 sit below every window but B48's. 221700, the odometer, remains among the unpublished: it rests on a dashboard reading and a 17-minute drive with nothing to corroborate it. Anything established in these blocks is new rather than confirmed.\n\nIDENTIFIER COUNT CORRECTED. This record said 572 while its own map file, its own stats block and every capture said 705 -- a number left behind by an update that touched everything except the field a reader looks at first.\n\nNINE IDENTIFIERS NAMED FROM OBDb, all on 7E1 and all transmission, which is also what settles that 7E1 is the EGS. Every one was already in this record's map, found on this car and unnamed. OBDb documents the whole BMW 5-Series at 6F1 extended addressing -- 30 commands, no other header -- and this vehicle answered twelve of them at 7DF and 7E1 without extended addressing being used at all, which is worth sending back to them. So is 221700: they cover it from 2016, and this 2013 answers it.\n\nAND ONE OF THEM IS THE DRIVE MODE. 22DA2E carries shift gear in byte 0 and drive mode in byte 1. That was being chased by correlation across the whole drive log; it was sitting in an unnamed identifier the map already held.",
  "anchors": [
   {
    "did": "224300",
@@ -337,7 +413,7 @@
  ],
  "addressing_detail": {
   "7DF": "42 PIDs — the functional broadcast, where everything above was found",
-  "7E1": "13 PIDs — a second reachable module",
+  "7E1": "13 PIDs -- the transmission (EGS). Identified by the 22DAxx family answering here, which OBDb documents at 6F1 with response 618, the transmission target.",
   "7E0": "silent",
   "7E2": "silent",
   "note": "settled by the ECUs' own supported-PID bitmaps rather than by guessing headers"
@@ -352,7 +428,9 @@
   "224411 'remaining distance derived from fuel consumption' EXISTS but reads 0.00 in every sample, as do 224ABF and 224AC0 'consumption with/without regulator'. The range-to-empty hunted for earlier is present and simply never populated on this car.",
   "22583B is published as 'fuel tank level' in litres but reads 3-10, far too low for an F10's tank. Either the scale is wrong or it is not tank level.",
   "225881 'actual gear' never exceeds 6 on an 8-speed car, and the same map lists clutch-motor and zero-gear-sensor fields that belong to a dual-clutch box this car does not have. Treat that section as possibly covering other transmission variants.",
-  "Does any of 224002, 224A60, 224A61, 224A65, 224A78 or 224AD6 track the Driving Dynamics selector? No driving mode is published in ANY of the six DME maps that source holds -- every 'mode' entry there is injection mode or oil-pressure-control operating mode -- so if the DME exposes the selector at all it is unnamed. Those six toggled 00->01 and straight back at the rpm peak of a comfort/sport/eco drive on 2026-08-30, which is suggestive and not evidence: peak load is an unexcluded alternative for every one of them. 224002 is the only one B48 names, as \"Status switching states 1\", a BITFIELD with no bit assignments given -- so even the published entry leaves every bit unexplained. Test it STATIONARY at warm idle, where rpm, load and speed are flat and cannot explain a step, and CYCLE BACK to the starting mode: a selector returns, a warm-up drift does not. An earlier candidate, 225833, was rejected -- the N55 map names it as engine oil level status, and the cluster it moved with was an oil-level measurement updating, not a mode change."
+  "Does any of 224002, 224A60, 224A61, 224A65, 224A78 or 224AD6 track the Driving Dynamics selector? No driving mode is published in ANY of the six DME maps that source holds -- every 'mode' entry there is injection mode or oil-pressure-control operating mode -- so if the DME exposes the selector at all it is unnamed. Those six toggled 00->01 and straight back at the rpm peak of a comfort/sport/eco drive on 2026-08-30, which is suggestive and not evidence: peak load is an unexcluded alternative for every one of them. 224002 is the only one B48 names, as \"Status switching states 1\", a BITFIELD with no bit assignments given -- so even the published entry leaves every bit unexplained. Test it STATIONARY at warm idle, where rpm, load and speed are flat and cannot explain a step, and CYCLE BACK to the starting mode: a selector returns, a warm-up drift does not. An earlier candidate, 225833, was rejected -- the N55 map names it as engine oil level status, and the cluster it moved with was an oil-level measurement updating, not a mode change.",
+  "22DA2E byte 1 is the drive mode, but which value means eco, comfort or sport is unknown -- it read 1 stationary. A focused log of this one identifier while cycling the modes and returning to the starting one settles it in two minutes, parked. This replaces the correlation approach, which was never going to find a three-state selector against rpm or load.",
+  "22DA12's -48 offset is carried over from 22DA25 because OBDb gives this one no scale. 59 degC at warm idle is plausible for ATF and unverified. A cold-start log showing it rise alongside the oil temperature would settle the form."
  ],
  "stats": {
   "probes": 1550,
