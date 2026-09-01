@@ -2543,3 +2543,68 @@ class EmptyRunTest {
             src.contains("(not counting them as empty)"))
     }
 }
+
+/**
+ * A carried-forward payload must say roughly when it was read.
+ *
+ * A block is swept once and never again, so any block swept before `swept_at` existed will
+ * stay blank forever — 21 of this BMW's 24, all 11 of the Ioniq's. Their payloads travel
+ * into every later capture unchanged, indistinguishable from data read during that session.
+ * Three captures of the Ioniq appeared to give three 12 V readings; they were one
+ * measurement copied forward twice, and only the identical payload hashes gave it away.
+ *
+ * A block carried out of an older capture cannot have been read after that capture was
+ * written, so its `finished_at` is a true upper bound. Not a reading — a bound.
+ */
+class ReadBoundTest {
+    private fun cap(finishedAt: String, name: String, req: String,
+                    sweptAt: String = "", readBy: String = "") = """
+        {"vin_key":"K","finished_at":"$finishedAt",
+         "detail":[{"name":"$name","header":"7DF","swept":true,
+                    "swept_at":"$sweptAt"${if (readBy.isEmpty()) "" else ",\"read_no_later_than\":\"$readBy\""},
+                    "recon_hits":[],"full_hits":[["$req","AA"]]}]}"""
+
+    /** An unstamped block inherits the writing time of the file that carried it. */
+    @Test fun anUndatedBlockGetsTheCapturesOwnTime() {
+        val (blocks, _) = mergeProgress(listOf(cap("2026-08-30T09:58:42Z", "2201xx", "220101")), "K")!!
+        assertEquals("2026-08-30T09:58:42Z", blocks.single().readBy)
+        assertEquals("", blocks.single().sweptAt)
+    }
+
+    /**
+     * The EARLIEST bound wins. Captures merge oldest first, and a later file re-recording
+     * the same block says only that it still knew about it — which is not news about when
+     * the payload was read. This is the Ioniq case exactly: one reading, three captures.
+     */
+    @Test fun aLaterCaptureDoesNotMakeTheDataYounger() {
+        val (blocks, _) = mergeProgress(listOf(
+            cap("2026-08-30T09:58:42Z", "2201xx", "220101"),
+            cap("2026-08-30T14:15:17Z", "2201xx", "220101"),
+            cap("2026-08-30T15:18:12Z", "2201xx", "220101")), "K")!!
+        assertEquals("2026-08-30T09:58:42Z", blocks.single().readBy)
+    }
+
+    /** A real sweep time is never overwritten by a bound, and never invented. */
+    @Test fun anExactTimeBeatsABound() {
+        val (blocks, _) = mergeProgress(listOf(
+            cap("2026-08-30T15:18:12Z", "2201xx", "220101", sweptAt = "2026-08-30T15:10:01Z")), "K")!!
+        assertEquals("2026-08-30T15:10:01Z", blocks.single().sweptAt)
+    }
+
+    /** And a bound already recorded is carried, not recomputed from a newer file. */
+    @Test fun anExistingBoundIsPreserved() {
+        val (blocks, _) = mergeProgress(listOf(
+            cap("2026-08-31T20:00:00Z", "2201xx", "220101", readBy = "2026-08-29T08:19:04Z")), "K")!!
+        assertEquals("2026-08-29T08:19:04Z", blocks.single().readBy)
+    }
+
+    /** Written only where there is no exact time, so the two can never be confused. */
+    @Test fun theBoundIsWrittenOnlyWhenNothingBetterExists() {
+        val src = java.io.File(
+            generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+                .first { java.io.File(it, "README.md").isFile },
+            "app/src/main/java/com/redundo/obddiscover/Discover.kt").readText()
+        assertTrue(src.contains("if (b.readBy.isNotEmpty() && b.sweptAt.isEmpty())"))
+        assertTrue(src.contains("\\\"read_no_later_than\\\""))
+    }
+}

@@ -74,6 +74,11 @@ internal fun mergeProgress(
             if (o.optString("vin_key") != key) continue
             val det = o.optJSONArray("detail") ?: continue
             any = true
+            // WHEN THIS FILE WAS WRITTEN, which bounds when anything in it was read. Blocks
+            // swept before swept_at existed carry no time of their own and never will, since
+            // a block is swept once; without this they travel into every later capture
+            // looking like data read during that session. See DiscoveredBlock.readBy.
+            val wroteAt = o.optString("finished_at")
             for (i in 0 until det.length()) {
                 val b = det.optJSONObject(i) ?: continue
                 val name = b.optString("name")
@@ -107,7 +112,14 @@ internal fun mergeProgress(
                     emptyRuns = maxOf(b.optInt("empty_runs", 0), prev?.emptyRuns ?: 0),
                     // Provenance follows the run that actually swept it.
                     state = if (sweptNow) b.optString("state", "") else prev?.state ?: "",
-                    sweptAt = if (sweptNow) b.optString("swept_at", "") else prev?.sweptAt ?: "")
+                    sweptAt = if (sweptNow) b.optString("swept_at", "") else prev?.sweptAt ?: "",
+                    // The EARLIEST bound wins, because captures are merged oldest first and
+                    // the first file to carry a block is the closest thing to when it was
+                    // read. A later capture re-recording the same block says only that it
+                    // still knew about it, which is not news about the payload.
+                    readBy = b.optString("read_no_later_than", "")
+                        .ifEmpty { prev?.readBy ?: "" }
+                        .ifEmpty { wroteAt })
             }
             o.optJSONArray("recon_headers")?.let { a ->
                 for (j in 0 until a.length()) reconHdrs.add(a.optString(j))

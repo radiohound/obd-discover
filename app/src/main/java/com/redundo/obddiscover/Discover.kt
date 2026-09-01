@@ -559,6 +559,22 @@ data class DiscoveredBlock(
      */
     var state: String = "",
     var sweptAt: String = "",
+    /**
+     * When this block's payloads were read, when nobody recorded it exactly.
+     *
+     * A BOUND, NOT A READING, and named so it cannot be mistaken for one. A block is swept
+     * once and never again, so every block swept before sweptAt existed will stay blank
+     * forever -- 21 of this BMW's 24 and all 11 of the Ioniq's. Their payloads are then
+     * carried into every later capture unchanged, where they look exactly like data read
+     * during that session. Reading an Ioniq's 12 V rail out of three captures gave three
+     * identical figures that turned out to be one measurement copied forward twice, and
+     * only the payload hashes gave it away.
+     *
+     * A block carried out of an older capture cannot have been read after that capture was
+     * written, so its finished_at is a true upper bound and costs nothing -- the merge has
+     * the file open already. "No later than" beats nothing at all.
+     */
+    var readBy: String = "",
 )
 
 class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
@@ -1887,6 +1903,8 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                         "  {\"name\": \"${b.name}\", \"header\": \"${b.header}\", " +
                             "\"swept\": ${b.swept}, \"empty_runs\": ${b.emptyRuns}, " +
                             "\"state\": \"${b.state}\", \"swept_at\": \"${b.sweptAt}\", " +
+                            (if (b.readBy.isNotEmpty() && b.sweptAt.isEmpty())
+                                "\"read_no_later_than\": \"${b.readBy}\", " else "") +
                             "\"recon_hits\": [$recon], \"full_hits\": [$full]}"
                     })
                     out.write("\n]\n}\n")
