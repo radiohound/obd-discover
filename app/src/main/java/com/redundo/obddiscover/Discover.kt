@@ -255,6 +255,150 @@ object Discover {
     const val REACH_SAMPLE = 24
 
     /**
+     * Ceiling on requests per second, overall and to a functional broadcast.
+     *
+     * WHY A CEILING AT ALL. An Ioniq 5 stopped recognising both of its keys after a
+     * scanning session and recovered on its own overnight, which reads as a timed
+     * protective latch rather than damage. Automotive intrusion rules key on message
+     * frequency, and blind enumeration is the highest-frequency thing this app does.
+     *
+     * WHERE THE NUMBERS COME FROM. Not from a published threshold -- none exists, and one
+     * could not be trusted across makes if it did. From that car's own sessions:
+     *
+     *     08-30 09:21   2.9/s   37 min   fine
+     *     08-30 14:05   5.1/s   10 min   fine
+     *     08-30 15:08  10.3/s   10 min   keys failed that evening
+     *
+     * Vehicle state was constant across all three -- in Drive with the brake on -- and the
+     * wider header set was already in use during the 5.1/s session that was fine. The rate
+     * is what was new. So 5/s is the highest rate this vehicle is known to have tolerated,
+     * which is a weaker claim than "safe" and a much stronger one than a round number.
+     *
+     * COST, measured against every session on record that has a clock: 1.19x total run
+     * time at 5/s, against 1.74x at 3/s. It clips the 10.3/s outlier in half and barely
+     * touches a typical run, which sits at 6.2/s median.
+     *
+     * WHY THE BROADCAST GETS A TIGHTER ONE. A request to 7E0 is received by one ECU. A
+     * request to 7DF is received by every module on the bus, including the immobiliser and
+     * smart-key modules. Same request, categorically different exposure.
+     *
+     * THE BROADCAST LIMIT IS NOT ABSOLUTE, only the shape of its decay. An absolute 3/s
+     * floor would cost a BMW 1.7x on every run -- it does 82% of its work on 7DF and
+     * answers well -- to guard against productive broadcast traffic that nothing here has
+     * shown to be a problem. So a barren stretch on a broadcast decays further than one at
+     * an address, and productive broadcast reading is left alone.
+     *
+     * WHICH OF THE TWO LIMITS IS DOING THE WORK IS NOT KNOWN, and the honest position is
+     * that it cannot be settled from one incident. The vehicle that failed had three
+     * modules each receiving about 2.9 requests/s -- a low number to trip anything -- while
+     * the aggregate across them was 9.6 refusals/s, six and a half times any earlier
+     * session. Whether a module counts what arrives at it, or what it can see on the bus,
+     * or how often it has to decline, decides which figure is the meaningful one, and this
+     * project cannot tell. Both limits are cheap; guessing which to keep is not.
+     *
+     * REVISE FROM EVIDENCE, NOT FROM FEEL. Every capture records the rates actually
+     * achieved and the time spent waiting, so these can be argued about with numbers.
+     */
+    const val PROBE_MAX_PER_SEC = 5.0
+    const val BROADCAST_MAX_PER_SEC = 3.0
+
+    val PROBE_MIN_GAP_MS: Long = (1000.0 / PROBE_MAX_PER_SEC).toLong()
+    val BROADCAST_MIN_GAP_MS: Long = (1000.0 / BROADCAST_MAX_PER_SEC).toLong()
+
+    /**
+     * PACE ON THE SIGNATURE, NOT THE CLOCK.
+     *
+     * A flat ceiling slows a scan that is going well by exactly as much as one that is
+     * knocking on a door nobody is behind, and only the second one looks like an attack.
+     * What the bus saw in the ten minutes before an Ioniq 5 stopped recognising its keys
+     * was 5,738 `requestOutOfRange` refusals -- 744, 7E2, 7E3 and 7E4 each answering "no
+     * such identifier" over a thousand times without ever returning data. A sustained
+     * stream of refusals from one tester IS the enumeration signature; reading real values
+     * at six a second is not, and no intrusion rule worth the name would confuse them.
+     *
+     * MEASURED BY CONSECUTIVE MISSES, NOT BY RATIO. A ratio cannot tell the two apart: a
+     * healthy sweep of 256 offsets that finds 29 identifiers is 89% misses and looks
+     * identical to a barren one. But its misses come in short runs, because a hit resets
+     * the count every few offsets. A barren header produces one unbroken run of hundreds.
+     * On this BMW, 705 identifiers across 24 blocks is a hit roughly every ninth offset; on
+     * the Ioniq, 744 and 7E3 each produced 1,761 misses in a row and nothing else.
+     *
+     * So: free until FREE misses, ramping to the full gap by FULL, and reset by any data.
+     * A productive scan is never slowed. A barren sweep decays toward the ceiling within
+     * one block's worth of silence, which is also the point at which this app already
+     * suspects the vehicle has gone away.
+     */
+    const val MISS_RUN_FREE = 32
+    const val MISS_RUN_FULL = 256
+
+    /**
+     * How long to wait before the next probe, given how long we have been getting nothing.
+     *
+     * Pure, so the ramp is testable without a bus.
+     */
+    fun missGapMs(consecutiveMisses: Int, fullGapMs: Long = PROBE_MIN_GAP_MS): Long {
+        if (consecutiveMisses <= MISS_RUN_FREE) return 0L
+        if (consecutiveMisses >= MISS_RUN_FULL) return fullGapMs
+        val span = (MISS_RUN_FULL - MISS_RUN_FREE).toDouble()
+        return (fullGapMs * ((consecutiveMisses - MISS_RUN_FREE) / span)).toLong()
+    }
+
+    /**
+     * How long to wait before the next broadcast request may go out.
+     *
+     * Pure, so the ceiling can be tested without a clock. Zero when enough time has already
+     * passed -- which is the case that makes interleaving worth doing.
+     */
+    fun paceGapMs(lastSendMs: Long, nowMs: Long, minGapMs: Long): Long {
+        if (lastSendMs <= 0L) return 0L
+        val since = nowMs - lastSendMs
+        if (since >= minGapMs) return 0L
+        // Clamped at the gap itself. A clock that steps backwards -- an NTP correction
+        // mid-run, which is ordinary on a phone -- makes `since` negative, and the
+        // subtraction alone would turn a 200 ms ceiling into an arbitrarily long sleep.
+        // A stall that scales with how far the clock moved is a worse failure than the
+        // one probe of over-spacing that clamping costs.
+        return (minGapMs - since).coerceIn(0L, minGapMs)
+    }
+
+    /**
+     * Order blocks so broadcast and physical work alternate.
+     *
+     * THIS IS THE POINT OF THE WHOLE DESIGN. A ceiling on its own makes the run longer by
+     * sitting idle between broadcast requests. But a request to a physical header is
+     * invisible to the modules the ceiling protects -- they never receive it -- so physical
+     * work done during that wait is free: it lowers the broadcast rate without costing time.
+     * Sweeping all the broadcast blocks and then all the physical ones wastes that entirely,
+     * because the two never overlap.
+     *
+     * The smaller list is spread evenly through the larger rather than merged one-for-one,
+     * which would exhaust the physical work in the first stretch and idle through the rest.
+     *
+     * WHAT IT CANNOT DO. It only helps where physical work exists. Measured across this
+     * project's vehicles: a Ford has 359 broadcast identifiers to 238 physical and gets most
+     * of the benefit; a BMW is 577 to 128 and gets about a fifth of it; an Ioniq 5, a Subaru
+     * and the GM trucks found everything on the broadcast and have nothing to interleave
+     * with, so on those the ceiling costs real time. The resumable session design already
+     * absorbs that -- a map is built ten minutes at a time regardless.
+     */
+    fun <T> interleave(items: List<T>, isBroadcast: (T) -> Boolean): List<T> {
+        val bc = items.filter(isBroadcast)
+        val ph = items.filterNot(isBroadcast)
+        if (bc.isEmpty() || ph.isEmpty()) return items
+        val out = ArrayList<T>(items.size)
+        // Spread the shorter list through the longer at an even stride.
+        val (long, short) = if (bc.size >= ph.size) bc to ph else ph to bc
+        val stride = long.size.toDouble() / (short.size + 1)
+        var si = 0
+        for ((i, item) in long.withIndex()) {
+            out.add(item)
+            while (si < short.size && (i + 1) >= stride * (si + 1)) out.add(short[si++])
+        }
+        while (si < short.size) out.add(short[si++])
+        return out
+    }
+
+    /**
      * Which broadcast-found identifiers to re-ask at a physical address.
      *
      * Spread across the list rather than taken from the front. Blocks are swept in order, so
@@ -668,16 +812,72 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
      */
     private val refusals = LinkedHashMap<String, String>()
 
+    /** When the last request, and the last broadcast request, went out. See the ceilings. */
+    private var lastProbeMs = 0L
+    private var lastBroadcastMs = 0L
+    /** Probes in a row that returned no data. Resets on any payload. Drives the ramp. */
+    private var missRun = 0
+    /** The longest such run this session, so a capture shows how barren the scan got. */
+    private var missRunMax = 0
+    /** Broadcast requests sent, and physical ones, so the split is measurable. */
+    private var probesBroadcast = 0
+    private var probesPhysical = 0
+    /** Time actually spent waiting on the ceiling. Interleaving is what makes this small. */
+    private var pacedMs = 0L
+
     private fun ask(req: String): Triple<Boolean, String?, Boolean> {
+        // THE CEILING, applied at the one place every request passes through, so it covers
+        // the sweep, recon, the known-identifier pass and triage alike rather than only the
+        // loop it was written for. Physical requests are never delayed: no module that
+        // matters here receives them.
+        val broadcast = curHeader in Discover.BROADCAST_HEADERS
+        val now = System.currentTimeMillis()
+        // The ramp, sized by how long this has been getting nothing back, and the broadcast
+        // floor beneath it. A scan that is finding data pays neither; a barren sweep pays
+        // the first; anything on a broadcast pays at least the second, because a broadcast
+        // is heard by every module on the bus whatever it is asking for.
+        // TWO LIMITS, BECAUSE THERE ARE TWO HYPOTHESES AND THE EVIDENCE CANNOT SEPARATE
+        // THEM. If what a module reacts to is requests arriving, the flat ceiling is what
+        // matters and the ramp is irrelevant. If it is a sustained stream of refusals --
+        // enumeration's signature -- the ramp is what matters and the ceiling is nearly
+        // free. Each covers the case the other misses, so both are here.
+        //
+        // The flat ceiling is not free, so it is set where the evidence is strongest: 5/s
+        // is the highest rate this project has sustained proof is harmless, from drive logs
+        // that have run at 5.0-5.6/s for up to 34 minutes across three makes without
+        // incident. It also sits just under the BLE link's own floor -- every request is a
+        // write plus a notification across a connection interval of tens of milliseconds,
+        // which is why probes land at 97-346 ms whatever they ask -- so it costs 1.19x
+        // measured across every session on record, and bites only where replies got
+        // unusually cheap. Which is exactly the enumeration case: a refusal is three bytes
+        // on one line, the least a car can say.
+        val fullGap = if (broadcast) Discover.BROADCAST_MIN_GAP_MS else Discover.PROBE_MIN_GAP_MS
+        var gap = Discover.paceGapMs(lastProbeMs, now, Discover.missGapMs(missRun, fullGap))
+        gap = maxOf(gap, Discover.paceGapMs(lastProbeMs, now, Discover.PROBE_MIN_GAP_MS))
+        if (gap > 0) {
+            // Not while stopping. A ceiling that made Stop take a fifth of a second longer
+            // per outstanding probe would be a worse bug than the one it fixes.
+            if (!stopFlag) Thread.sleep(gap)
+            pacedMs += gap
+        }
+        val sentAt = System.currentTimeMillis()
+        lastProbeMs = sentAt
+        if (broadcast) { lastBroadcastMs = sentAt; probesBroadcast++ } else probesPhysical++
         val a = Discover.sendWithRetry(consecutiveDead, abandon = { stopFlag }) { n ->
             if (n == 0) ble.cmd(req) else ble.cmd(req, Discover.RETRY_TIMEOUT_MS)
         }
         retries += a.sent - 1
         val raw = a.raw
-        if (!a.sawPrompt) { timeouts++; consecutiveDead += a.sent; return Triple(false, null, false) }
+        if (!a.sawPrompt) {
+            timeouts++; consecutiveDead += a.sent; noteMiss()
+            return Triple(false, null, false)
+        }
         consecutiveDead = 0
         val pl = Obd.payloadOf(req, raw)
-        if (pl != null && pl.isNotEmpty()) return Triple(true, Obd.hex(pl), false)
+        // DATA RESETS THE RAMP. This is what separates a sweep that is working from one
+        // knocking on an empty address: both miss most of the time, but only one of them
+        // ever stops missing.
+        if (pl != null && pl.isNotEmpty()) { missRun = 0; return Triple(true, Obd.hex(pl), false) }
         // Parse `7F 22 <nrc>` rather than searching the reply for "7F".
         //
         // The old test was `clean.contains("7F")`, which cannot tell a Mode-22 refusal from
@@ -695,7 +895,16 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 refusals["$curHeader|$req"] = Mode21.negativeName(nrc)
             }
         }
+        // A refusal is a miss. It is a courteous one -- 0x31 means "no such identifier" and
+        // is the correct answer -- but courteous or not, a thousand in a row from one
+        // tester is what enumeration looks like from the bus's side.
+        noteMiss()
         return Triple(false, null, nrc != null)
+    }
+
+    private fun noteMiss() {
+        missRun++
+        if (missRun > missRunMax) missRunMax = missRun
     }
 
     /**
@@ -871,6 +1080,8 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
         probesKnown = 0; probesRecon = 0; probesSweep = 0; probesTriage = 0
         probesReach = 0; reach.clear(); reachSampled = 0
         nrcByHeader.clear(); refusals.clear(); timeouts = 0; retries = 0; consecutiveDead = 0; curHeader = ""
+        lastProbeMs = 0L; lastBroadcastMs = 0L; missRun = 0; missRunMax = 0
+        probesBroadcast = 0; probesPhysical = 0; pacedMs = 0L
         stopping = false; aborted = false; matchedModels = emptyList(); allHits = emptyList()
         runStartMs = System.currentTimeMillis()
         voltStart = ""; voltEnd = ""
@@ -1236,7 +1447,7 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 if (seeded.isNotEmpty()) {
                     phase = "sweep"
                     ble.log("sweeping ${seeded.size} block(s) proved by phase 0, before recon")
-                    for (b in seeded) {
+                    for (b in Discover.interleave(seeded) { it.header in Discover.BROADCAST_HEADERS }) {
                         if (stopFlag) break
                         if (outOfTime()) { paused = true; break }
                         sweepOne(b, { seeded.size }, exact = false)
@@ -1325,7 +1536,9 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                 // --- phase 2: sweep everything recon added -------------------------
                 // Blocks phase 1 already swept are skipped by name, never re-asked.
                 phase = "sweep"
-                for (b in found.values.toList()) {
+                for (b in Discover.interleave(found.values.toList()) {
+                         it.header in Discover.BROADCAST_HEADERS
+                     }) {
                     if (stopFlag) break
                     if (b.name in swept0 || finished(b)) continue
                     if (!liveHeaders.contains(b.header)) continue   // carried, not sweepable
@@ -1510,6 +1723,22 @@ class DiscoverRunner(private val ctx: Context, private val ble: ElmBle) {
                     out.write("\"recon\": $probesRecon, \"sweep\": $probesSweep, " +
                         "\"triage\": $probesTriage, \"reach\": $probesReach, ")
                     out.write("\"timeouts\": $timeouts, \"retries\": $retries},\n")
+                    // THE SWEEP'S SHAPE, not just its size. This incident was reconstructed
+                    // from timestamps that existed only because they had been added that
+                    // morning, and the rate that matters -- broadcast requests per second,
+                    // the one an intrusion rule would key on -- could not be recovered from
+                    // any capture at all. Recorded now so BROADCAST_MAX_PER_SEC can be
+                    // argued about with numbers rather than adjusted by feel, and so a
+                    // future incident is analysable from the file alone.
+                    out.write("\"pacing\": {\"ceiling_per_s\": ${Discover.PROBE_MAX_PER_SEC}, " +
+                        "\"broadcast_ceiling_per_s\": ${Discover.BROADCAST_MAX_PER_SEC}, " +
+                        "\"longest_miss_run\": $missRunMax, " +
+                        "\"broadcast_probes\": $probesBroadcast, \"physical_probes\": $probesPhysical, " +
+                        "\"achieved_per_s\": ${"%.2f".format(
+                            ((finishedMs - runStartMs) / 1000.0).let {
+                                if (it > 0) probesBroadcast / it else 0.0
+                            })}, " +
+                        "\"waited_ms\": $pacedMs},\n")
                     // PHASE 1: what this vehicle says when it declines. Recorded only.
                     out.write("\"refused_but_present\": {")
                     out.write(refusals.entries.joinToString(", ") {

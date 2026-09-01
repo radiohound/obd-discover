@@ -38,6 +38,19 @@ On ISO 9141-2 no standard we have read defines Mode 21 at all, so the same reaso
 analogy rather than by specification, and there it is **opt-in per vehicle** with that
 distinction stated on screen before you tick it.
 
+**Read-only is not the same as no side effects.** Everything this app sends is a read, and
+that guarantee is real — but a read is still a question, and asking thousands of them quickly
+is something a vehicle can notice. In the ten minutes before an Ioniq 5 stopped accepting
+either of its keys, three of its modules answered *no such identifier* 5,740 times without
+ever returning data — six and a half times the rate of any earlier session on that car, in
+the same state and against the same modules. It recovered on its own overnight. We cannot
+show the scan caused it, and it is not clear whether what matters is how fast we ask or how
+often a module has to decline, so the scan now limits both: a ceiling of 5 requests/s, and a
+back-off that slows further as consecutive refusals accumulate.
+[docs/pacing.md](docs/pacing.md) has the numbers, and what they are not.
+
+**If a vehicle stops recognising its key after a scan: disconnect nothing, and give it time.**
+
 ## What it does
 
 **START** — scan, connect, handshake. Three lights show which step is which, so a failure

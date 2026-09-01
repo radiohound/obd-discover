@@ -2148,3 +2148,165 @@ class ReachHeaderSelectionTest {
         assertTrue(reach.contains("""if (ext) { ble.cmd("ATCEA"); ble.cmd("ATCRA") }"""))
     }
 }
+
+/**
+ * Rate ceilings on blind enumeration.
+ *
+ * An Ioniq 5 stopped recognising both keys after a session that ran at 10.3 requests/s for
+ * ten minutes. Sessions on the same car at 2.9/s and 5.1/s, in the same vehicle state and
+ * (for the 5.1 one) against the same header set, were fine. The rate is the variable that
+ * was new, so it is the one with a limit on it.
+ */
+class PacingTest {
+    /** The global ceiling is the highest rate that car is known to have tolerated. */
+    @Test fun theCeilingsAreWhatTheEvidenceSupports() {
+        assertEquals(5.0, Discover.PROBE_MAX_PER_SEC, 0.0)
+        assertEquals(3.0, Discover.BROADCAST_MAX_PER_SEC, 0.0)
+        assertEquals(200L, Discover.PROBE_MIN_GAP_MS)
+        assertEquals(333L, Discover.BROADCAST_MIN_GAP_MS)
+    }
+
+    @Test fun itWaitsOnlyTheRemainder() {
+        // 50 ms since the last probe, 200 ms wanted: wait the other 150.
+        assertEquals(150L, Discover.paceGapMs(1_000L, 1_050L, 200L))
+        // Already past the gap: no wait at all. This is the case interleaving creates.
+        assertEquals(0L, Discover.paceGapMs(1_000L, 1_400L, 200L))
+        assertEquals(0L, Discover.paceGapMs(1_000L, 1_200L, 200L))
+    }
+
+    /** The first probe of a run is never delayed -- there is nothing to space it from. */
+    @Test fun theFirstProbeIsFree() {
+        assertEquals(0L, Discover.paceGapMs(0L, 9_999L, 200L))
+    }
+
+    /**
+     * A clock that steps backwards must not turn a 200 ms ceiling into a long stall.
+     * Ordinary on a phone: an NTP correction mid-run does exactly this, and the naive
+     * subtraction sleeps for the ceiling PLUS however far time moved.
+     */
+    @Test fun itSurvivesTimeMovingOddly() {
+        assertEquals(200L, Discover.paceGapMs(5_000L, 4_000L, 200L))
+        assertTrue("never longer than the ceiling itself",
+            Discover.paceGapMs(9_000_000L, 1L, 200L) <= 200L)
+        assertTrue("and never negative", Discover.paceGapMs(1_000L, 9_999L, 200L) >= 0L)
+    }
+
+    /**
+     * Interleaving is what makes the broadcast ceiling nearly free: a request to a physical
+     * header is invisible to the modules the ceiling protects, so work done during the wait
+     * costs nothing. Sweeping all the broadcast blocks and then all the physical ones wastes
+     * that entirely.
+     */
+    @Test fun broadcastAndPhysicalWorkAlternate() {
+        val items = List(8) { "B$it" } + List(4) { "P$it" }
+        val out = Discover.interleave(items) { it.startsWith("B") }
+        assertEquals("nothing is lost or duplicated", items.toSet(), out.toSet())
+        assertEquals(items.size, out.size)
+        // The physical work must be spread, not clumped at either end.
+        val at = out.withIndex().filter { it.value.startsWith("P") }.map { it.index }
+        assertTrue("spread through the run, not bunched: $out", at.first() < 4 && at.last() > out.size - 5)
+    }
+
+    /**
+     * The Ioniq, the Subaru and the GM trucks found everything on the broadcast and have no
+     * physical work at all. Interleaving must leave those alone rather than reordering them
+     * into a different but equally serial run.
+     */
+    @Test fun aSingleKindIsLeftExactlyAsItWas() {
+        val only = listOf("B0", "B1", "B2")
+        assertEquals(only, Discover.interleave(only) { true })
+        assertEquals(only, Discover.interleave(only) { false })
+        assertEquals(emptyList<String>(), Discover.interleave(emptyList<String>()) { true })
+    }
+
+    /** Applied at the one place every request passes through, not just the sweep loop. */
+    @Test fun theCeilingCoversEveryPhaseNotJustTheSweep() {
+        val src = java.io.File(
+            generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+                .first { java.io.File(it, "README.md").isFile },
+            "app/src/main/java/com/redundo/obddiscover/Discover.kt").readText()
+        val ask = src.substring(src.indexOf("private fun ask(req: String)"))
+        assertTrue("the ramp", ask.contains("Discover.missGapMs(missRun, fullGap)"))
+        assertTrue("a barren broadcast decays further",
+            ask.contains("if (broadcast) Discover.BROADCAST_MIN_GAP_MS else Discover.PROBE_MIN_GAP_MS"))
+        assertTrue("and the flat ceiling underneath both",
+            ask.contains("maxOf(gap, Discover.paceGapMs(lastProbeMs, now, Discover.PROBE_MIN_GAP_MS))"))
+        assertTrue("and Stop is never delayed by it", ask.contains("if (!stopFlag) Thread.sleep(gap)"))
+    }
+
+    /**
+     * The RAMP adds nothing while a scan is finding things -- a productive sweep is capped
+     * only by the flat ceiling, never slowed below it. Naming this precisely matters: the
+     * two limits together do NOT leave a productive scan untouched, and an earlier version
+     * of this test claimed they did while the code did the opposite.
+     */
+    @Test fun theRampAddsNothingWhileTheCarIsAnswering() {
+        for (gapKind in listOf(Discover.PROBE_MIN_GAP_MS, Discover.BROADCAST_MIN_GAP_MS)) {
+            assertEquals(0L, Discover.missGapMs(0, gapKind))
+            assertEquals(0L, Discover.missGapMs(1, gapKind))
+            // A BMW block holds ~29 identifiers in 256 offsets -- a hit roughly every ninth.
+            assertEquals(0L, Discover.missGapMs(9, gapKind))
+            assertEquals(0L, Discover.missGapMs(Discover.MISS_RUN_FREE, gapKind))
+        }
+    }
+
+    /**
+     * On a broadcast a barren stretch decays FURTHER, because blind knocking that every
+     * module on the bus hears is worse than blind knocking at one address. It decays from
+     * the same starting point though: zero.
+     */
+    @Test fun aBarrenBroadcastDecaysFurtherThanABarrenAddress() {
+        val bc = Discover.missGapMs(Discover.MISS_RUN_FULL, Discover.BROADCAST_MIN_GAP_MS)
+        val ph = Discover.missGapMs(Discover.MISS_RUN_FULL, Discover.PROBE_MIN_GAP_MS)
+        assertTrue("barren broadcast waits longer: ${'$'}bc vs ${'$'}ph", bc > ph)
+        assertEquals(333L, bc)
+        assertEquals(200L, ph)
+    }
+
+    /**
+     * A barren header decays to the full gap within one block's worth of silence. On the
+     * Ioniq, 744 and 7E3 each answered "no such identifier" 1,761 times in a row.
+     */
+    @Test fun aBarrenSweepDecaysToTheCeiling() {
+        // The ramp starts gently -- a few misses past FREE still round to no wait at all,
+        // which is right: 33 consecutive misses is an ordinary gap between identifiers.
+        assertEquals(0L, Discover.missGapMs(Discover.MISS_RUN_FREE + 1))
+        // By the midpoint it is half the gap, and by FULL it is all of it.
+        val mid = (Discover.MISS_RUN_FREE + Discover.MISS_RUN_FULL) / 2
+        assertTrue("about half the gap by the midpoint, got ${Discover.missGapMs(mid)}",
+            Math.abs(Discover.missGapMs(mid) - Discover.PROBE_MIN_GAP_MS / 2) <= 2)
+        assertEquals(Discover.PROBE_MIN_GAP_MS, Discover.missGapMs(Discover.MISS_RUN_FULL))
+        assertEquals(Discover.PROBE_MIN_GAP_MS, Discover.missGapMs(1_761))
+        // Monotonic: more silence is never less caution.
+        val ramp = (0..300).map { Discover.missGapMs(it) }
+        assertEquals(ramp, ramp.sorted())
+    }
+
+    /**
+     * Every way out of ask() has to maintain the run, or the ramp reads a barren stretch as
+     * a productive one. A timeout is a miss; a refusal is a courteous miss; only a payload
+     * resets it.
+     */
+    @Test fun everyOutcomeMaintainsTheRun() {
+        val src = java.io.File(
+            generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+                .first { java.io.File(it, "README.md").isFile },
+            "app/src/main/java/com/redundo/obddiscover/Discover.kt").readText()
+        val ask = src.substring(src.indexOf("private fun ask(req: String)"),
+                                src.indexOf("private fun noteMiss()"))
+        assertEquals("a timeout and a refusal, and nothing else", 2, Regex("noteMiss\\(\\)").findAll(ask).count())
+        assertTrue("data resets it", ask.contains("{ missRun = 0; return Triple(true"))
+    }
+
+    /** Recorded, so the constants can be revised from numbers rather than intuition. */
+    @Test fun theAchievedRateReachesTheCapture() {
+        val src = java.io.File(
+            generateSequence(java.io.File(System.getProperty("user.dir")!!)) { it.parentFile }
+                .first { java.io.File(it, "README.md").isFile },
+            "app/src/main/java/com/redundo/obddiscover/Discover.kt").readText()
+        assertTrue(src.contains("\\\"pacing\\\""))
+        assertTrue(src.contains("\\\"achieved_per_s\\\""))
+        assertTrue(src.contains("\\\"waited_ms\\\""))
+        assertTrue(src.contains("\\\"broadcast_probes\\\""))
+    }
+}
