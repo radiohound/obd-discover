@@ -35,6 +35,18 @@ what was new — it had already run once without incident. What was new is every
 right of it: three modules answering *no such identifier* over a thousand times each, without
 ever returning data, at six and a half times the previous peak.
 
+Which modules those are is now known, from OBDb's signalset for this exact model:
+
+| header | module | signals OBDb documents | requests we sent it |
+|---|---|---|---|
+| `744` | on-board charger | 46 | 1,761 |
+| `7E2` | vehicle control unit | 18 | 1,769 |
+| `7E3` | motor control unit / inverter | 16 | 1,761 |
+| `7E4` | battery management system | 234 | 447 |
+
+The ratio is what blind enumeration costs: thirty-eight questions asked at a charging
+controller for every one that has an answer.
+
 ## Which number matters is not known
 
 There are at least two explanations and this evidence cannot separate them.
@@ -47,7 +59,11 @@ the number and the jump is much larger.
 
 **Refusals.** A sustained stream of *no such identifier* from one tester is what enumeration
 looks like from the bus's side, and it is the thing that most distinguishes the last session.
-But the modules that refused are not necessarily the module that latched.
+But the modules that refused are not the module that failed. None of the three is a body
+control or smart-key module — they are the charger, the vehicle supervisor and the motor
+controller. Of those, only the vehicle control unit is plausibly in the path of a refusal to
+start, and it was also the sole module under load during both earlier sessions that were
+fine.
 
 Our own request rate is the least trustworthy of the three, because it is an output rather
 than a setting. A reply — data or a refusal — comes back in tens of milliseconds, while
@@ -90,6 +106,11 @@ adjusted by feel.
   app, 867 lines apart, including a fix to multi-frame reply parsing and a change to how much
   of each module recon covers. How *our* end behaved differed for reasons that were ours.
 - **Not a causal finding.** One vehicle, one occurrence, no diagnosis, and no second case.
+- **Not matched to the symptom.** The first thing that failed was the fob's lock button,
+  which is a body and RF function. No module being probed that session controls door locks —
+  the three under load were the charger, the vehicle control unit and the motor controller.
+  Nothing here explains how probing those would stop a key locking the doors, and that gap is
+  the strongest argument against the scan having caused any of it.
 - **Not informed by a drive log on that car.** The drive-log evidence that 5/s is harmless
   comes from a BMW, a Ford and a Subaru. Discovery on the Ioniq never finished, so it never
   reached a drive.
