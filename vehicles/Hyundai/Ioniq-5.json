@@ -49,7 +49,7 @@
   "sessions": 8
  },
  "source": "obd-discover, on-car captures 2026-08-29 to 2026-08-30; VIN pattern read from the vehicle. Signal names cross-referenced against OBDb's Hyundai-IONIQ-5 signalset, cited per entry.",
- "notes": "Battery electric, and that is why its VIN was hard to read: a BEV has no engine ECU, so 7E0 does not exist on this car and every VIN attempt before discovery went to an address that is not there. vPIC confirms make, model, year and SE trim independently of the WMI mapping.\n\nEVERY IDENTIFIER HERE ANSWERED ON THE 7DF BROADCAST. Five headers are live -- 744, 7DF, 7E2, 7E3, 7E4 -- but recon finished only four of them and no block was ever attributed to a physical header, so the physical addresses remain unswept. That matters for the 14 cross-referenced signals below: OBDb documents all of them at 7E4, 7E5 or 7E2, and this car answered every one of them on the broadcast. The battery dataset was obtained without ever sweeping the battery module.\n\nOBDb DOCUMENTS 11 REQUESTS THIS PROJECT HAS NOT FOUND, and nine sit on headers it does not probe by design -- 7C6 (odometer, 22B002), 7A0 (tire pressures), 730 (wheel speeds, steering angle, yaw), 7B3 (cabin temperatures), 770 (exterior lights). A scope decision rather than a scanning failure.\n\nAND 120 IDENTIFIERS HERE ARE IN NO PUBLISHED LIST. Roughly 43 of those are structural -- 22F1xx is ISO 14229's identification range and 22F4xx mirrors the legislated Mode-01 PIDs -- leaving about 77 genuine unknowns. The most tractable are 220106, 220107, 220108 and 220130: neighbours in the same battery block whose surrounding entries OBDb has already decoded.\n\nSCANNING HISTORY. On 2026-08-30 this vehicle stopped recognising either of its keys after a session that drew 5,740 refusals in ten minutes. It recovered unaided overnight. See docs/pacing.md -- including what that evidence is not.",
+ "notes": "Battery electric, and that is why its VIN was hard to read: a BEV has no engine ECU, so 7E0 does not exist on this car and every VIN attempt before discovery went to an address that is not there. vPIC confirms make, model, year and SE trim independently of the WMI mapping.\n\nEVERY IDENTIFIER HERE ANSWERED ON THE 7DF BROADCAST. Five headers are live -- 744, 7DF, 7E2, 7E3, 7E4 -- but recon finished only four of them and no block was ever attributed to a physical header, so the physical addresses remain unswept. That matters for the 14 cross-referenced signals below: OBDb documents all of them at 7E4, 7E5 or 7E2, and this car answered every one of them on the broadcast. The battery dataset was obtained without ever sweeping the battery module.\n\nOBDb DOCUMENTS 11 REQUESTS THIS PROJECT HAS NOT FOUND, and nine sit on headers it does not probe by design -- 7C6 (odometer, 22B002), 7A0 (tire pressures), 730 (wheel speeds, steering angle, yaw), 7B3 (cabin temperatures), 770 (exterior lights). A scope decision rather than a scanning failure.\n\nAND 120 IDENTIFIERS HERE ARE IN NO PUBLISHED LIST. Roughly 43 of those are structural -- 22F1xx is ISO 14229's identification range and 22F4xx mirrors the legislated Mode-01 PIDs -- leaving about 77 genuine unknowns. The most tractable are 220106, 220107, 220108 and 220130: neighbours in the same battery block whose surrounding entries OBDb has already decoded.\n\nSCANNING HISTORY. On 2026-08-30 this vehicle stopped recognising either of its keys after a session that drew 5,740 refusals in ten minutes. It recovered unaided overnight. See docs/pacing.md -- including what that evidence is not.\n\nTHE CELL COUNT IS DERIVED, NOT LOOKED UP. 220102-22010B carry one byte per cell at 0.02 V; 144 of them are populated and 22010C is empty, giving 570.24 V, against 572.2 V read from 220101's own pack-voltage field in the same reply. Two independent parts of one capture agreeing to 0.34%.\n\nAN ERROR IN THE PUBLISHED DEFINITION, worth sending upstream. OBDb's `Battery DC voltage` in 220101 carries no divisor, so its own formula yields 5722 V, and it states a range of 268.8-403.2 V. That is a 400 V pack; this car is 800 V class and reads 572.2. The field needs div 10, and the bounds look inherited from a different vehicle. Everything else in that block decoded correctly first time.",
  "signals": [
   {
    "did": "220101",
@@ -57,39 +57,45 @@
    "name": "HV battery state: charge, current, DC voltage, min/max temperature",
    "signal_count": 32,
    "obdb_header": "7E4",
-   "confidence": "community-published",
-   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 32 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
+   "confidence": "inferred",
+   "verified": "Decoded with OBDb's field positions against this project's own capture and every value is plausible: 76% state of charge, 0.4 A, max/min pack temperature 21/20 degC. The pack-voltage field needs a divisor of 10 that OBDb does not state -- see notes.",
    "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
   },
   {
    "did": "220102",
    "header": "7DF",
-   "name": "HV battery module voltages 001-032",
+   "name": "HV battery cell voltages 001-032",
    "signal_count": 32,
    "obdb_header": "7E4",
-   "confidence": "community-published",
-   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 32 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
-   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+   "confidence": "inferred",
+   "verified": "CROSS-CHECKED INTERNALLY, which is why this is inferred rather than merely cited. The cell bytes decode at 0.02 V/count: 144 read 3.96 V and the rest of the space is unpopulated, so the pack sums to 570.24 V. 220101's own pack-voltage field reads 572.2 V at the same moment -- 0.34% apart, from two independent parts of the same reply. Neither figure was checked against the vehicle.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there.",
+   "scale": 0.02,
+   "unit": "V"
   },
   {
    "did": "220103",
    "header": "7DF",
-   "name": "HV battery module voltages 033-064",
+   "name": "HV battery cell voltages 033-064",
    "signal_count": 32,
    "obdb_header": "7E4",
-   "confidence": "community-published",
-   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 32 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
-   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+   "confidence": "inferred",
+   "verified": "CROSS-CHECKED INTERNALLY, which is why this is inferred rather than merely cited. The cell bytes decode at 0.02 V/count: 144 read 3.96 V and the rest of the space is unpopulated, so the pack sums to 570.24 V. 220101's own pack-voltage field reads 572.2 V at the same moment -- 0.34% apart, from two independent parts of the same reply. Neither figure was checked against the vehicle.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there.",
+   "scale": 0.02,
+   "unit": "V"
   },
   {
    "did": "220104",
    "header": "7DF",
-   "name": "HV battery module voltages 065-096",
+   "name": "HV battery cell voltages 065-096",
    "signal_count": 32,
    "obdb_header": "7E4",
-   "confidence": "community-published",
-   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 32 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
-   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+   "confidence": "inferred",
+   "verified": "CROSS-CHECKED INTERNALLY, which is why this is inferred rather than merely cited. The cell bytes decode at 0.02 V/count: 144 read 3.96 V and the rest of the space is unpopulated, so the pack sums to 570.24 V. 220101's own pack-voltage field reads 572.2 V at the same moment -- 0.34% apart, from two independent parts of the same reply. Neither figure was checked against the vehicle.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there.",
+   "scale": 0.02,
+   "unit": "V"
   },
   {
    "did": "220105",
@@ -104,32 +110,38 @@
   {
    "did": "22010A",
    "header": "7DF",
-   "name": "HV battery module voltages 097-128",
+   "name": "HV battery cell voltages 097-128",
    "signal_count": 32,
    "obdb_header": "7E4",
-   "confidence": "community-published",
-   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 32 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
-   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+   "confidence": "inferred",
+   "verified": "CROSS-CHECKED INTERNALLY, which is why this is inferred rather than merely cited. The cell bytes decode at 0.02 V/count: 144 read 3.96 V and the rest of the space is unpopulated, so the pack sums to 570.24 V. 220101's own pack-voltage field reads 572.2 V at the same moment -- 0.34% apart, from two independent parts of the same reply. Neither figure was checked against the vehicle.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there.",
+   "scale": 0.02,
+   "unit": "V"
   },
   {
    "did": "22010B",
    "header": "7DF",
-   "name": "HV battery module voltages 129-160",
+   "name": "HV battery cell voltages 129-144, the last populated block",
    "signal_count": 32,
    "obdb_header": "7E4",
-   "confidence": "community-published",
-   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 32 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
-   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+   "confidence": "inferred",
+   "verified": "CROSS-CHECKED INTERNALLY, which is why this is inferred rather than merely cited. The cell bytes decode at 0.02 V/count: 144 read 3.96 V and the rest of the space is unpopulated, so the pack sums to 570.24 V. 220101's own pack-voltage field reads 572.2 V at the same moment -- 0.34% apart, from two independent parts of the same reply. Neither figure was checked against the vehicle.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there.",
+   "scale": 0.02,
+   "unit": "V"
   },
   {
    "did": "22010C",
    "header": "7DF",
-   "name": "HV battery module voltages 161-192",
+   "name": "HV battery cell voltages (block unpopulated on this pack)",
    "signal_count": 32,
    "obdb_header": "7E4",
-   "confidence": "community-published",
-   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 32 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
-   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+   "confidence": "inferred",
+   "verified": "CROSS-CHECKED INTERNALLY, which is why this is inferred rather than merely cited. The cell bytes decode at 0.02 V/count: 144 read 3.96 V and the rest of the space is unpopulated, so the pack sums to 570.24 V. 220101's own pack-voltage field reads 572.2 V at the same moment -- 0.34% apart, from two independent parts of the same reply. Neither figure was checked against the vehicle.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there.",
+   "scale": 0.02,
+   "unit": "V"
   },
   {
    "did": "220111",
@@ -190,6 +202,24 @@
    "confidence": "community-published",
    "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E5 and defines 8 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
    "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+  },
+  {
+   "did": "220135",
+   "header": "7DF",
+   "name": "HV battery, per-module figure reading 100.0 (values 1-32)",
+   "scale": 0.1,
+   "confidence": "weak",
+   "verified": "STRUCTURE ONLY, AND IT MAY BE A PLACEHOLDER. 32 sixteen-bit values in 220135 and 16 more in 220136 -- 48 in all, every one exactly 1000, unchanged across three captures. 48 is 144/3, so a per-module figure over 48 modules of three cells would fit the cell count derived above, and 1000 at 0.1 would read 100.0 -- a state of health or capacity ratio on a car with 6,000 miles on it. But a constant cannot be told from a hardcoded default by looking at it, and 100.0 everywhere is exactly what an unimplemented field also returns. Named as a shape, not a signal. Settling it needs a second Ioniq 5, or this one after real degradation.",
+   "source": "this project's own sweeps; absent from OBDb's Hyundai-IONIQ-5 signalset"
+  },
+  {
+   "did": "220136",
+   "header": "7DF",
+   "name": "HV battery, per-module figure reading 100.0 (values 33-48, the last populated)",
+   "scale": 0.1,
+   "confidence": "weak",
+   "verified": "STRUCTURE ONLY, AND IT MAY BE A PLACEHOLDER. 32 sixteen-bit values in 220135 and 16 more in 220136 -- 48 in all, every one exactly 1000, unchanged across three captures. 48 is 144/3, so a per-module figure over 48 modules of three cells would fit the cell count derived above, and 1000 at 0.1 would read 100.0 -- a state of health or capacity ratio on a car with 6,000 miles on it. But a constant cannot be told from a hardcoded default by looking at it, and 100.0 everywhere is exactly what an unimplemented field also returns. Named as a shape, not a signal. Settling it needs a second Ioniq 5, or this one after real degradation.",
+   "source": "this project's own sweeps; absent from OBDb's Hyundai-IONIQ-5 signalset"
   }
  ]
 }
