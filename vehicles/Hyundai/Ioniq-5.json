@@ -1,45 +1,195 @@
 {
-  "vin_pattern": "7YAKM4DB",
-  "year": 2025,
-  "make": "Hyundai",
-  "model": "Ioniq 5",
-  "series": "SE",
-  "vehicle": {
-    "body": "Sport Utility Vehicle [SUV]/Multipurpose Vehicle [MPV]",
-    "drive": "4x2",
-    "fuel": "Electric",
-    "electrification": "BEV (Battery Electric Vehicle)",
-    "doors": "4",
-    "gvwr": "Class 1D: 5,001 - 6,000 lb (2,268 - 2,722 kg)"
+ "vin_pattern": "7YAKM4DB",
+ "year": 2025,
+ "make": "Hyundai",
+ "model": "Ioniq 5",
+ "series": "SE",
+ "vehicle": {
+  "body": "Sport Utility Vehicle [SUV]/Multipurpose Vehicle [MPV]",
+  "drive": "4x2",
+  "fuel": "Electric",
+  "electrification": "BEV (Battery Electric Vehicle)",
+  "doors": "4",
+  "gvwr": "Class 1D: 5,001 - 6,000 lb (2,268 - 2,722 kg)"
+ },
+ "addressing": "11-bit",
+ "headers": [
+  "7DF",
+  "7E2",
+  "744",
+  "7E3",
+  "7E4"
+ ],
+ "blocks": [
+  "2201",
+  "22A5",
+  "22AA",
+  "22E0",
+  "22E1",
+  "22F0",
+  "22F1",
+  "22F2",
+  "22F4",
+  "22F8",
+  "22F9"
+ ],
+ "identifier_count": 134,
+ "map": "Ioniq-5.map.json",
+ "pids": {
+  "0101": "monitor status since DTCs cleared",
+  "0121": "distance travelled with MIL on (km)",
+  "0130": "warm-ups since codes cleared",
+  "0131": "distance since codes cleared (km)",
+  "015B": "hybrid battery pack remaining life (%)",
+  "019A": "hybrid/EV vehicle system data, battery, voltage"
+ },
+ "stats": {
+  "probes": 21192,
+  "blocks": 11,
+  "sessions": 8
+ },
+ "source": "obd-discover, on-car captures 2026-08-29 to 2026-08-30; VIN pattern read from the vehicle. Signal names cross-referenced against OBDb's Hyundai-IONIQ-5 signalset, cited per entry.",
+ "notes": "Battery electric, and that is why its VIN was hard to read: a BEV has no engine ECU, so 7E0 does not exist on this car and every VIN attempt before discovery went to an address that is not there. vPIC confirms make, model, year and SE trim independently of the WMI mapping.\n\nEVERY IDENTIFIER HERE ANSWERED ON THE 7DF BROADCAST. Five headers are live -- 744, 7DF, 7E2, 7E3, 7E4 -- but recon finished only four of them and no block was ever attributed to a physical header, so the physical addresses remain unswept. That matters for the 14 cross-referenced signals below: OBDb documents all of them at 7E4, 7E5 or 7E2, and this car answered every one of them on the broadcast. The battery dataset was obtained without ever sweeping the battery module.\n\nOBDb DOCUMENTS 11 REQUESTS THIS PROJECT HAS NOT FOUND, and nine sit on headers it does not probe by design -- 7C6 (odometer, 22B002), 7A0 (tire pressures), 730 (wheel speeds, steering angle, yaw), 7B3 (cabin temperatures), 770 (exterior lights). A scope decision rather than a scanning failure.\n\nAND 120 IDENTIFIERS HERE ARE IN NO PUBLISHED LIST. Roughly 43 of those are structural -- 22F1xx is ISO 14229's identification range and 22F4xx mirrors the legislated Mode-01 PIDs -- leaving about 77 genuine unknowns. The most tractable are 220106, 220107, 220108 and 220130: neighbours in the same battery block whose surrounding entries OBDb has already decoded.\n\nSCANNING HISTORY. On 2026-08-30 this vehicle stopped recognising either of its keys after a session that drew 5,740 refusals in ten minutes. It recovered unaided overnight. See docs/pacing.md -- including what that evidence is not.",
+ "signals": [
+  {
+   "did": "220101",
+   "header": "7DF",
+   "name": "HV battery state: charge, current, DC voltage, min/max temperature",
+   "signal_count": 32,
+   "obdb_header": "7E4",
+   "confidence": "community-published",
+   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 32 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
   },
-  "addressing": "11-bit",
-  "headers": [
-    "7DF",
-    "7E2"
-  ],
-  "blocks": [
-    "22A5",
-    "22AA",
-    "22F0",
-    "22F2",
-    "22F4",
-    "22F8",
-    "22F9"
-  ],
-  "identifier_count": 53,
-  "map": "Ioniq-5.map.json",
-  "pids": {
-    "0101": "monitor status since DTCs cleared",
-    "0121": "distance travelled with MIL on (km)",
-    "0130": "warm-ups since codes cleared",
-    "0131": "distance since codes cleared (km)",
-    "015B": "hybrid battery pack remaining life (%)",
-    "019A": "hybrid/EV vehicle system data, battery, voltage"
+  {
+   "did": "220102",
+   "header": "7DF",
+   "name": "HV battery module voltages 001-032",
+   "signal_count": 32,
+   "obdb_header": "7E4",
+   "confidence": "community-published",
+   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 32 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
   },
-  "stats": {
-    "probes": 5390,
-    "blocks": 7
+  {
+   "did": "220103",
+   "header": "7DF",
+   "name": "HV battery module voltages 033-064",
+   "signal_count": 32,
+   "obdb_header": "7E4",
+   "confidence": "community-published",
+   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 32 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
   },
-  "source": "obd-discover, on-car capture 2026-08-29; VIN pattern read from the vehicle",
-  "notes": "Battery electric, and that is why its VIN was hard to read: a BEV has no engine ECU, so 7E0 does not exist on this car and every VIN attempt before discovery went to an address that is not there. Its live headers are 7DF and 7E2. The pattern here was read off the vehicle; vPIC confirms make, model, year and SE trim independently of the WMI mapping."
+  {
+   "did": "220104",
+   "header": "7DF",
+   "name": "HV battery module voltages 065-096",
+   "signal_count": 32,
+   "obdb_header": "7E4",
+   "confidence": "community-published",
+   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 32 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+  },
+  {
+   "did": "220105",
+   "header": "7DF",
+   "name": "HV battery state of health and cell-voltage deviation",
+   "signal_count": 3,
+   "obdb_header": "7E4",
+   "confidence": "community-published",
+   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 3 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+  },
+  {
+   "did": "22010A",
+   "header": "7DF",
+   "name": "HV battery module voltages 097-128",
+   "signal_count": 32,
+   "obdb_header": "7E4",
+   "confidence": "community-published",
+   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 32 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+  },
+  {
+   "did": "22010B",
+   "header": "7DF",
+   "name": "HV battery module voltages 129-160",
+   "signal_count": 32,
+   "obdb_header": "7E4",
+   "confidence": "community-published",
+   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 32 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+  },
+  {
+   "did": "22010C",
+   "header": "7DF",
+   "name": "HV battery module voltages 161-192",
+   "signal_count": 32,
+   "obdb_header": "7E4",
+   "confidence": "community-published",
+   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 32 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+  },
+  {
+   "did": "220111",
+   "header": "7DF",
+   "name": "charging counts, normal and rapid",
+   "signal_count": 6,
+   "obdb_header": "7E4",
+   "confidence": "community-published",
+   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 6 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+  },
+  {
+   "did": "220114",
+   "header": "7DF",
+   "name": "A/C compressor operating speed",
+   "signal_count": 1,
+   "obdb_header": "7E4",
+   "confidence": "community-published",
+   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E4 and defines 1 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+  },
+  {
+   "did": "22E001",
+   "header": "7DF",
+   "name": "charge mode DC target voltage and current limits",
+   "signal_count": 6,
+   "obdb_header": "7E5",
+   "confidence": "community-published",
+   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E5 and defines 6 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+  },
+  {
+   "did": "22E003",
+   "header": "7DF",
+   "name": "on-board charger DC target voltage",
+   "signal_count": 2,
+   "obdb_header": "7E5",
+   "confidence": "community-published",
+   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E5 and defines 2 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+  },
+  {
+   "did": "22E004",
+   "header": "7DF",
+   "name": "accelerator pedal position",
+   "signal_count": 3,
+   "obdb_header": "7E2",
+   "confidence": "community-published",
+   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E2 and defines 3 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+  },
+  {
+   "did": "22E101",
+   "header": "7DF",
+   "name": "low-voltage DC-DC converter temperature and output",
+   "signal_count": 8,
+   "obdb_header": "7E5",
+   "confidence": "community-published",
+   "verified": "found on the 7DF broadcast by this project's sweeps. OBDb documents it at 7E5 and defines 8 field(s) within it. Not decoded or checked against the vehicle here -- the name is a claim about what the block carries, not a measurement.",
+   "source": "named in OBDb's Hyundai-IONIQ-5 signalset (github.com/OBDb/Hyundai-IONIQ-5, CC BY-SA 4.0). The identifier and the fact that this vehicle answers it are from this project's own sweeps; the name is theirs. Field-level bit offsets and scales are NOT copied here -- read them there."
+  }
+ ]
 }
